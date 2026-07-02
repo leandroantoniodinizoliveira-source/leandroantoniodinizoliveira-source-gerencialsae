@@ -9,7 +9,7 @@ interface PlanningModuleProps {
   tasks: Task[];
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   showToast: (title: string, message: string, type: "success" | "error" | "warning" | "info") => void;
-  activeSubTab?: "tasks" | "dashboard" | "plans" | "areas" | "categories" | "responsibles";
+  activeSubTab?: "tasks" | "dashboard" | "plans" | "areas" | "categories" | "responsibles" | "import" | "models";
   setConfirmState: React.Dispatch<React.SetStateAction<any>>;
   myTasksFilterTrigger: number;
   isMyTasksSelected: boolean;
@@ -21,6 +21,8 @@ interface PlanningModuleProps {
   setAreasProp: React.Dispatch<React.SetStateAction<any[]>>;
   setCategoriesProp: React.Dispatch<React.SetStateAction<any[]>>;
   setResponsiblesProp: React.Dispatch<React.SetStateAction<any[]>>;
+  editingTaskIdFromPainel?: number | null;
+  setEditingTaskIdFromPainel?: React.Dispatch<React.SetStateAction<number | null>>;
 }
 
 export const PlanningModule: React.FC<PlanningModuleProps> = (props) => {

@@ -37,6 +37,10 @@ export function ResolutionsDashboard({ showToast }: ResolutionsDashboardProps) {
     const fetchResolutions = async () => {
       try {
         const response = await fetch("/api/resolutions");
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Servidor retornou status ${response.status}: ${text}`);
+        }
         const json = await response.json();
         if (json.success) {
           setResolutions(json.data);

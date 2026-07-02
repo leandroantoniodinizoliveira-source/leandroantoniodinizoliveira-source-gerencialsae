@@ -16,6 +16,7 @@ import {
   ChevronsDown,
   ChevronsUp,
   ChevronRight,
+  ChevronLeft,
   Plus,
   Trash2,
   Edit2,
@@ -55,6 +56,8 @@ import {
   Scale,
   ListTree
 } from "lucide-react";
+import { FiscalizacaoEditor } from './FiscalizacaoEditor';
+import { RecursoEditor } from './RecursoEditor';
 import { Task, Plan, Area, Category, Responsible } from "../types";
 import { cn } from "../lib/utils";
 import { useAuth } from "../lib/auth";
@@ -78,6 +81,8 @@ interface PlanningTabProps {
   setAreasProp?: React.Dispatch<React.SetStateAction<Area[]>>;
   setCategoriesProp?: React.Dispatch<React.SetStateAction<Category[]>>;
   setResponsiblesProp?: React.Dispatch<React.SetStateAction<Responsible[]>>;
+  editingTaskIdFromPainel?: number | null;
+  setEditingTaskIdFromPainel?: React.Dispatch<React.SetStateAction<number | null>>;
 }
  
 const normalizeStatus = (status: string | undefined): "Não iniciada" | "Em andamento" | "Concluída" => {
@@ -401,7 +406,9 @@ export function PlanningTab({
   setPlansProp,
   setAreasProp,
   setCategoriesProp,
-  setResponsiblesProp
+  setResponsiblesProp,
+  editingTaskIdFromPainel,
+  setEditingTaskIdFromPainel
 }: PlanningTabProps) {
   const { currentUser } = useAuth();
 
@@ -441,6 +448,7 @@ export function PlanningTab({
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [isProgrammedFilter, setIsProgrammedFilter] = useState<string>("all");
+  const [taskTypeFilter, setTaskTypeFilter] = useState<string>("all");
   
   // New plan and area filters
   const [planFilter, setPlanFilter] = useState<string>("all");
@@ -458,6 +466,7 @@ export function PlanningTab({
       priorityFilter !== "all" ||
       categoryFilter !== "all" ||
       isProgrammedFilter !== "all" ||
+      taskTypeFilter !== "all" ||
       hasSubtasksFilter ||
       searchTerm.trim() !== "" ||
       (planFilter !== "all" && planFilter !== "") ||
@@ -471,6 +480,7 @@ export function PlanningTab({
     priorityFilter,
     categoryFilter,
     isProgrammedFilter,
+    taskTypeFilter,
     hasSubtasksFilter,
     searchTerm,
     planFilter,
@@ -743,14 +753,23 @@ export function PlanningTab({
 
   // Modal/Form State for adding/editing tasks
   const [timelineTaskId, setTimelineTaskId] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"tree" | "table" | "status" | "category" | "area" | "responsible" | "board" | "gantt">("board");
+  const [viewMode, setViewMode] = useState<"tree" | "table" | "status" | "category" | "area" | "responsible" | "board" | "gantt" | "calendar">("board");
+  const [calendarScale, setCalendarScale] = useState<"mes" | "trimestre" | "ano">("mes");
+  const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<Date | null>(null);
+  const [areaTableViewMode, setAreaTableViewMode] = useState<"table" | "calendar">("table");
+  const [areaCalendarScale, setAreaCalendarScale] = useState<"mes" | "trimestre" | "semestre">("mes");
+  const [areaCalendarYear, setAreaCalendarYear] = useState<number>(new Date().getFullYear());
+  const [areaCalendarMonth, setAreaCalendarMonth] = useState<number>(new Date().getMonth());
+  const [selectedAreaCalendarDay, setSelectedAreaCalendarDay] = useState<Date | null>(null);
   const [ganttScale, setGanttScale] = useState<"mes" | "trimestre" | "semestre">("mes");
   const [timelineModalTab, setTimelineModalTab] = useState<"timeline" | "gantt" | "calc">("timeline");
   const [tableSort, setTableSort] = useState<{ field: string, dir: "asc" | "desc" } | null>({ field: "end", dir: "asc" });
   const [boardGroupBy, setBoardGroupBy] = useState<"status" | "category" | "situation">("category");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [recentModifiedTaskIds, setRecentModifiedTaskIds] = useState<number[]>([]);
-  const [taskFormTab, setTaskFormTab] = useState<"form" | "notes" | "comments" | "links" | "calc">("form");
+  const [taskFormTab, setTaskFormTab] = useState<string>("form");
   const [newComment, setNewComment] = useState("");
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [newLinkUrl, setNewLinkUrl] = useState("");
@@ -786,6 +805,105 @@ export function PlanningTab({
       }
     }
   }, [editingTask.areaIds, categories, responsibles]);
+
+  // Synchronize Fiscalizacao Code
+  useEffect(() => {
+    if (editingTask && editingTask.type === 'fiscalizacao') {
+      const currentYear = new Date().getFullYear();
+      const currentTipo = editingTask.fiscalizacaoData?.tipoFiscalizacao || "Operacional";
+      const targetTypeAbbr = currentTipo === "Qualidade do Atendimento" ? "QA" : "OP";
+
+      let sigla = "UNKNOWN";
+      if (editingTask.areaIds && editingTask.areaIds.length > 0) {
+        const primaryArea = areas.find(a => a.id === editingTask.areaIds[0]);
+        if (primaryArea && primaryArea.abbreviation) {
+          sigla = primaryArea.abbreviation;
+        } else if (primaryArea) {
+          sigla = primaryArea.name.substring(0, 4).toUpperCase();
+        }
+      }
+
+      let needsRegen = false;
+      const currentCode = editingTask.fiscalizacaoData?.codigo;
+
+      if (!currentCode) {
+        needsRegen = true;
+      } else {
+        const match = currentCode.match(/FISC\s*(OP|QA)?\s*(\d+)-(\d+)\s*(.*)/i);
+        if (match) {
+          const codeTypeAbbr = match[1] ? match[1].toUpperCase() : "OP";
+          const codeYear = parseInt(match[3], 10);
+          const codeSigla = match[4] ? match[4].trim() : "";
+
+          if (codeTypeAbbr !== targetTypeAbbr) {
+            needsRegen = true;
+          }
+          if (codeYear !== currentYear) {
+            needsRegen = true;
+          }
+          if (codeSigla !== sigla) {
+            needsRegen = true;
+          }
+        } else {
+          needsRegen = true;
+        }
+      }
+
+      if (needsRegen) {
+        let maxSeq = 0;
+        tasks.forEach(t => {
+          if (t.id !== editingTask.id && t.type === 'fiscalizacao' && t.fiscalizacaoData?.codigo) {
+             const match = t.fiscalizacaoData.codigo.match(/FISC\s*(OP|QA)?\s*(\d+)-(\d+)/i);
+             if (match) {
+               const typeAbbr = match[1] ? match[1].toUpperCase() : "OP";
+               const seq = parseInt(match[2], 10);
+               const year = parseInt(match[3], 10);
+               if (year === currentYear && typeAbbr === targetTypeAbbr && seq > maxSeq) {
+                 maxSeq = seq;
+               }
+             }
+          }
+        });
+        const nextSeq = maxSeq + 1;
+        const seqStr = nextSeq.toString().padStart(3, '0');
+        const generatedCode = `FISC ${targetTypeAbbr} ${seqStr}-${currentYear} ${sigla}`;
+        
+        if (!editingTask.fiscalizacaoData || editingTask.fiscalizacaoData.codigo !== generatedCode) {
+          setEditingTask(prev => ({
+            ...prev,
+            fiscalizacaoData: {
+              ...(prev.fiscalizacaoData || {
+                codigo: "",
+                objetivo: "",
+                regiaoAdministrativa: "",
+                latitude: "",
+                longitude: "",
+                tipo: "Direta",
+                tipoFiscalizacao: "Operacional",
+                            servico: "Água",
+                programacao: "Programada",
+                imagens: [],
+                documentos: [],
+                constatacoes: [],
+                termosNotificacao: []
+              }),
+              tipoFiscalizacao: currentTipo,
+              codigo: generatedCode
+            }
+          }));
+        }
+      }
+    }
+  }, [
+    editingTask.type,
+    editingTask.areaIds,
+    editingTask.id,
+    editingTask.fiscalizacaoData?.codigo,
+    editingTask.fiscalizacaoData?.tipoFiscalizacao,
+    tasks,
+    areas
+  ]);
+
   const [isInitializing, setIsInitializing] = useState(() => {
     const hasPlans = !!(plansProp && plansProp.length > 0);
     const hasResponsibles = !!(responsiblesProp && responsiblesProp.length > 0);
@@ -1396,6 +1514,12 @@ export function PlanningTab({
       if (!titleMatch && !descMatch && !categoryNamesMatch) return false;
     }
 
+    // Check task type
+    if (taskTypeFilter !== "all") {
+      const isType = t.type || "default";
+      if (isType !== taskTypeFilter) return false;
+    }
+
     // Check status
     if (statusFilter !== "all") {
       if (normalizeStatus(t.status) !== statusFilter) return false;
@@ -1682,6 +1806,12 @@ export function PlanningTab({
 
   // Filtered tasks and chart definitions for Dashboard
   const matchesFiltersDashboard = (t: Task): boolean => {
+    // Check task type
+    if (taskTypeFilter !== "all") {
+      const isType = t.type || "default";
+      if (isType !== taskTypeFilter) return false;
+    }
+
     // Check status
     if (statusFilter !== "all") {
       if (normalizeStatus(t.status) !== statusFilter) return false;
@@ -2987,8 +3117,9 @@ export function PlanningTab({
           });
         }
 
-        setIsFormOpen(false);
-        setEditingTask({});
+        // Keep the form open, update state with saved task, switch to edit mode if it was create
+        setFormMode("edit");
+        setEditingTask(resData.data);
         setNewAddedComments([]);
         
         // Force refresh all tasks to ensure correct state and Rollup updates are loaded
@@ -3044,7 +3175,8 @@ export function PlanningTab({
       notes: "",
       planId: defaultPlanId,
       areaIds: defaultAreaIds,
-      responsibleIds: defaultResponsibleIds
+      responsibleIds: defaultResponsibleIds,
+      type: "default"
     });
     setTaskFormTab("form");
     setIsFormOpen(true);
@@ -3075,6 +3207,18 @@ export function PlanningTab({
     setTaskFormTab("form");
     setIsFormOpen(true);
   };
+
+  useEffect(() => {
+    if (editingTaskIdFromPainel !== null && editingTaskIdFromPainel !== undefined) {
+      const task = tasks.find(t => t.id === editingTaskIdFromPainel);
+      if (task) {
+        handleEditTask(task);
+      }
+      if (setEditingTaskIdFromPainel) {
+        setEditingTaskIdFromPainel(null);
+      }
+    }
+  }, [editingTaskIdFromPainel, tasks]);
 
   // Handle task deletion
   const handleDeleteTask = async (id: number) => {
@@ -3965,8 +4109,8 @@ export function PlanningTab({
               </div>
             </div>
 
-            {/* Row 3: Status, Situation, Priority and Programmed */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* Row 3: Status, Situation, Priority, Programmed and Tipo */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
               <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">🚦 Status</span>
                 <select
@@ -4019,6 +4163,19 @@ export function PlanningTab({
                   <option value="all">Todas</option>
                   <option value="true">Programadas</option>
                   <option value="false">Não programadas</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5 border-l border-slate-100 pl-4">
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">📝 Tipo de Tarefa</span>
+                <select
+                  value={taskTypeFilter}
+                  onChange={(e) => setTaskTypeFilter(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-white text-slate-700 font-bold"
+                >
+                  <option value="all">Todos os Tipos</option>
+                  <option value="default">Padrão</option>
+                  <option value="fiscalizacao">Fiscalização</option>
                 </select>
               </div>
             </div>
@@ -5464,396 +5621,880 @@ export function PlanningTab({
                     Relação de atividades com referência na data fim, consolidando trimestre, mês e progresso atual, agrupadas por área/setor.
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-4 isolate">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setCollapsedAreas({});
-                        setCollapsedTableCategories({});
-                      }}
-                      className="px-3 py-1.5 text-xs bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl hover:bg-indigo-100/80 transition-colors uppercase tracking-wider cursor-pointer"
-                    >
-                      Expandir Todos
-                    </button>
-                    <button
-                      onClick={() => {
-                        const newCollapsedAreas: Record<string, boolean> = {};
-                        const newCollapsedCategories: Record<string, boolean> = {};
-                        const targetAreas = selectedAreaIds.length > 0 ? areas.filter(a => selectedAreaIds.includes(a.id)) : areas;
-                        const allAreas = [...targetAreas, ...(selectedAreaIds.length === 0 ? [{ id: 0, name: "Sem Área de Atuação" } as any] : [])];
-                        allAreas.forEach((a: any) => newCollapsedAreas[a.name] = true);
-                        
-                        const allCats = [...categories, { id: -1, name: "Sem Categoria" } as any];
-                        const allStatuses = [{ name: "Não iniciada" }, { name: "Em andamento" }, { name: "Concluída" }];
-                        
-                        allAreas.forEach((a: any) => {
-                          if (areaTableGroupMode === "category") {
-                            allCats.forEach((c: any) => newCollapsedCategories[`${a.name}-${c.name}`] = true);
-                          } else {
-                            allStatuses.forEach((s: any) => newCollapsedCategories[`${a.name}-${s.name}`] = true);
-                          }
-                        });
-                        setCollapsedAreas(newCollapsedAreas);
-                        setCollapsedTableCategories(newCollapsedCategories);
-                      }}
-                      className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors uppercase tracking-wider cursor-pointer"
-                    >
-                      Recolher Todos
-                    </button>
+                <div className="flex flex-col xl:flex-row items-end gap-4 isolate">
+                  {/* Selector: Tabela vs Calendário */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Visualização:</span>
+                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                      <button
+                        onClick={() => setAreaTableViewMode("table")}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${areaTableViewMode === "table" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                      >
+                        Tabela
+                      </button>
+                      <button
+                        onClick={() => setAreaTableViewMode("calendar")}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${areaTableViewMode === "calendar" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                      >
+                        Calendário
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button
-                      onClick={() => setAreaTableGroupMode("category")}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${areaTableGroupMode === "category" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-                    >
-                      Área e Categoria
-                    </button>
-                    <button
-                      onClick={() => setAreaTableGroupMode("status")}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${areaTableGroupMode === "status" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-                    >
-                      Área e Status
-                    </button>
-                  </div>
+
+                  {areaTableViewMode === "table" ? (
+                    <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setCollapsedAreas({});
+                            setCollapsedTableCategories({});
+                          }}
+                          className="px-3 py-1.5 text-xs bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl hover:bg-indigo-100/80 transition-colors uppercase tracking-wider cursor-pointer"
+                        >
+                          Expandir Todos
+                        </button>
+                        <button
+                          onClick={() => {
+                            const newCollapsedAreas: Record<string, boolean> = {};
+                            const newCollapsedCategories: Record<string, boolean> = {};
+                            const targetAreas = selectedAreaIds.length > 0 ? areas.filter(a => selectedAreaIds.includes(a.id)) : areas;
+                            const allAreas = [...targetAreas, ...(selectedAreaIds.length === 0 ? [{ id: 0, name: "Sem Área de Atuação" } as any] : [])];
+                            allAreas.forEach((a: any) => newCollapsedAreas[a.name] = true);
+                            
+                            const allCats = [...categories, { id: -1, name: "Sem Categoria" } as any];
+                            const allStatuses = [{ name: "Não iniciada" }, { name: "Em andamento" }, { name: "Concluída" }];
+                            
+                            allAreas.forEach((a: any) => {
+                              if (areaTableGroupMode === "category") {
+                                allCats.forEach((c: any) => newCollapsedCategories[`${a.name}-${c.name}`] = true);
+                              } else {
+                                allStatuses.forEach((s: any) => newCollapsedCategories[`${a.name}-${s.name}`] = true);
+                              }
+                            });
+                            setCollapsedAreas(newCollapsedAreas);
+                            setCollapsedTableCategories(newCollapsedCategories);
+                          }}
+                          className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition-colors uppercase tracking-wider cursor-pointer"
+                        >
+                          Recolher Todos
+                        </button>
+                      </div>
+                      <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        <button
+                          onClick={() => setAreaTableGroupMode("category")}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${areaTableGroupMode === "category" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                          Área e Categoria
+                        </button>
+                        <button
+                          onClick={() => setAreaTableGroupMode("status")}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${areaTableGroupMode === "status" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                          Área e Status
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col md:flex-row items-end md:items-center gap-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Escala:</span>
+                        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-xs shrink-0">
+                          <button
+                            onClick={() => { setAreaCalendarScale("mes"); setSelectedAreaCalendarDay(null); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs uppercase tracking-wider font-extrabold transition-all duration-200 cursor-pointer ${areaCalendarScale === "mes" ? "bg-white text-slate-850 shadow-sm border border-slate-200/40" : "text-slate-500 hover:text-slate-800"}`}
+                          >
+                            Mês
+                          </button>
+                          <button
+                            onClick={() => { setAreaCalendarScale("trimestre"); setSelectedAreaCalendarDay(null); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs uppercase tracking-wider font-extrabold transition-all duration-200 cursor-pointer ${areaCalendarScale === "trimestre" ? "bg-white text-slate-850 shadow-sm border border-slate-200/40" : "text-slate-500 hover:text-slate-800"}`}
+                          >
+                            Trimestre
+                          </button>
+                          <button
+                            onClick={() => { setAreaCalendarScale("semestre"); setSelectedAreaCalendarDay(null); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs uppercase tracking-wider font-extrabold transition-all duration-200 cursor-pointer ${areaCalendarScale === "semestre" ? "bg-white text-slate-850 shadow-sm border border-slate-200/40" : "text-slate-500 hover:text-slate-800"}`}
+                          >
+                            Semestre
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="overflow-x-auto border border-slate-200/60 rounded-2xl shadow-xs">
-                <table className="w-full text-left text-xs text-slate-600 border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 font-black uppercase text-[10px] tracking-wider select-none">
-                      <th 
-                        onClick={() => handleAreaTableSort("title")}
-                        className="px-4 py-3.5 min-w-[280px] cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Título da Tarefa <AreaTableSortIcon field="title" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("start")}
-                        className="px-4 py-3.5 text-center min-w-[110px] cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Início <AreaTableSortIcon field="start" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("end")}
-                        className="px-4 py-3.5 text-center min-w-[110px] cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Prazo <AreaTableSortIcon field="end" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("quarter")}
-                        className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Trimestre <AreaTableSortIcon field="quarter" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("month")}
-                        className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Mês <AreaTableSortIcon field="month" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("status")}
-                        className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Status <AreaTableSortIcon field="status" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("situation")}
-                        className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Situação <AreaTableSortIcon field="situation" />
-                      </th>
-                      <th 
-                        onClick={() => handleAreaTableSort("progress")}
-                        className="px-4 py-3.5 min-w-[140px] cursor-pointer hover:bg-slate-100/80 transition-colors"
-                      >
-                        Progresso <AreaTableSortIcon field="progress" />
-                      </th>
-                      <th className="px-4 py-3.5 text-center min-w-[85px]">
-                        Timeline
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {(() => {
-                      const sortTaskList = sortAreaTaskList;
+              {areaTableViewMode === "calendar" ? (
+                (() => {
+                  const parseSafeDate = (dateStr: string | null | undefined): Date | null => {
+                    if (!dateStr) return null;
+                    try {
+                      let d: Date;
+                      if (dateStr.includes("-")) {
+                        const parts = dateStr.split("T")[0].split("-");
+                        d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                      } else {
+                        d = new Date(dateStr);
+                      }
+                      return isNaN(d.getTime()) ? null : d;
+                    } catch (e) {
+                      return null;
+                    }
+                  };
 
-                      const targetAreas = selectedAreaIds.length > 0 
-                        ? areas.filter(a => selectedAreaIds.includes(a.id))
-                        : areas;
+                  const isTaskActiveOnDay = (task: any, day: Date) => {
+                    if (!task.startDate || !task.endDate) return false;
+                    const start = parseSafeDate(task.startDate);
+                    const end = parseSafeDate(task.endDate);
+                    if (!start || !end) return false;
+                    const s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+                    const e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+                    const d = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+                    return d >= s && d <= e;
+                  };
 
-                      const allAreas = [
-                        ...targetAreas,
-                        ...(selectedAreaIds.length === 0 ? [{ id: 0, name: "Sem Área de Atuação" }] : [])
-                      ];
+                  const getMonthDays = (year: number, month: number) => {
+                    const firstDayIndex = new Date(year, month, 1).getDay();
+                    const totalDays = new Date(year, month + 1, 0).getDate();
+                    const prevMonthTotalDays = new Date(year, month, 0).getDate();
+                    
+                    const cells: { date: Date; isCurrentMonth: boolean; dayNum: number }[] = [];
+                    
+                    for (let i = firstDayIndex - 1; i >= 0; i--) {
+                      const d = prevMonthTotalDays - i;
+                      cells.push({
+                        date: new Date(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1, d),
+                        isCurrentMonth: false,
+                        dayNum: d
+                      });
+                    }
+                    
+                    for (let d = 1; d <= totalDays; d++) {
+                      cells.push({
+                        date: new Date(year, month, d),
+                        isCurrentMonth: true,
+                        dayNum: d
+                      });
+                    }
+                    
+                    let nextMonthDay = 1;
+                    while (cells.length < 42) {
+                      cells.push({
+                        date: new Date(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1, nextMonthDay),
+                        isCurrentMonth: false,
+                        dayNum: nextMonthDay
+                      });
+                      nextMonthDay++;
+                    }
+                    
+                    return cells;
+                  };
 
-                      const sortedAreas = [...allAreas].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-                      const sortedCategories = [...categories].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-                      
-                      const allCategoriesForGroup = [
-                        ...sortedCategories,
-                        { id: -1, name: "Sem Categoria" }
-                      ];
+                  const monthNames = [
+                    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+                  ];
 
-                      const rows: React.ReactNode[] = [];
+                  const weekdayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-                      const renderRowHierarchical = (t: Task, depth: number, areaName: string, categoryName: string) => {
-                        const subTasksCount = childrenMap[t.id]?.length || 0;
-                        const isExpanded = expandedTasks[t.id] !== undefined ? expandedTasks[t.id] : (isAnyFilterActive ? true : false);
+                  const navigateCalendar = (direction: "prev" | "next") => {
+                    const step = direction === "prev" ? -1 : 1;
+                    if (areaCalendarScale === "mes") {
+                      let newMonth = areaCalendarMonth + step;
+                      let newYear = areaCalendarYear;
+                      if (newMonth < 0) {
+                        newMonth = 11;
+                        newYear -= 1;
+                      } else if (newMonth > 11) {
+                        newMonth = 0;
+                        newYear += 1;
+                      }
+                      setAreaCalendarMonth(newMonth);
+                      setAreaCalendarYear(newYear);
+                    } else if (areaCalendarScale === "trimestre") {
+                      let newMonth = areaCalendarMonth + (step * 3);
+                      let newYear = areaCalendarYear;
+                      if (newMonth < 0) {
+                        newMonth = 9;
+                        newYear -= 1;
+                      } else if (newMonth > 11) {
+                        newMonth = 0;
+                        newYear += 1;
+                      }
+                      const q = Math.floor(newMonth / 3);
+                      setAreaCalendarMonth(q * 3);
+                      setAreaCalendarYear(newYear);
+                    } else { // Semestre
+                      let newMonth = areaCalendarMonth + (step * 6);
+                      let newYear = areaCalendarYear;
+                      if (newMonth < 0) {
+                        newMonth = 6;
+                        newYear -= 1;
+                      } else if (newMonth > 11) {
+                        newMonth = 0;
+                        newYear += 1;
+                      }
+                      const s = Math.floor(newMonth / 6);
+                      setAreaCalendarMonth(s * 6);
+                      setAreaCalendarYear(newYear);
+                    }
+                  };
+
+                  const tasksWithDates = filteredTasks.filter(t => t.startDate && t.endDate);
+                  const activeDay = selectedAreaCalendarDay || new Date();
+                  
+                  // Compute months in view
+                  let monthsInView: number[] = [];
+                  if (areaCalendarScale === "mes") {
+                    monthsInView = [areaCalendarMonth];
+                  } else if (areaCalendarScale === "trimestre") {
+                    const qIdx = Math.floor(areaCalendarMonth / 3);
+                    monthsInView = [qIdx * 3, qIdx * 3 + 1, qIdx * 3 + 2];
+                  } else { // Semestre
+                    const sIdx = Math.floor(areaCalendarMonth / 6);
+                    monthsInView = [sIdx * 6, sIdx * 6 + 1, sIdx * 6 + 2, sIdx * 6 + 3, sIdx * 6 + 4, sIdx * 6 + 5];
+                  }
+
+                  // Active day tasks grouped by Área Temática
+                  const activeDayTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, activeDay));
+                  
+                  // Now group these tasks by Area
+                  const groupedActiveDayTasks: { areaName: string; tasks: any[] }[] = [];
+                  const targetAreas = selectedAreaIds.length > 0 
+                    ? areas.filter(a => selectedAreaIds.includes(a.id))
+                    : areas;
+                  const allAreasForGrouping = [
+                    ...targetAreas,
+                    ...(selectedAreaIds.length === 0 ? [{ id: 0, name: "Sem Área de Atuação" }] : [])
+                  ];
+
+                  allAreasForGrouping.forEach(area => {
+                    const areaTasks = activeDayTasks.filter(t => {
+                      const hasArea = t.areaIds && t.areaIds.length > 0;
+                      if (area.id === 0) {
+                        return !hasArea;
+                      } else {
+                        return t.areaIds && t.areaIds.includes(area.id);
+                      }
+                    });
+                    if (areaTasks.length > 0) {
+                      groupedActiveDayTasks.push({
+                        areaName: area.name,
+                        tasks: areaTasks
+                      });
+                    }
+                  });
+
+                  return (
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-4 text-left">
+                      {/* Calendar Navigation and Grid */}
+                      <div className="lg:col-span-3 bg-slate-50/50 border border-slate-200/60 rounded-3xl p-5 flex flex-col space-y-4">
                         
-                        let q = '-';
-                        let mLabel = '-';
-                        let formattedEndDate = '-';
-                        let formattedStartDate = '-';
-                        
-                        if (t.startDate) {
-                          try {
-                            const dStart = new Date(t.startDate);
-                            if (!isNaN(dStart.getTime())) {
-                              formattedStartDate = dStart.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
-                            }
-                          } catch(e) {}
-                        }
-                        
-                        if (t.endDate) {
-                          try {
-                            const d = new Date(t.endDate);
-                            if (!isNaN(d.getTime())) {
-                              formattedEndDate = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
-                              const monthIdx = d.getUTCMonth();
-                              
-                              if (monthIdx < 3) q = '1º Trim.';
-                              else if (monthIdx < 6) q = '2º Trim.';
-                              else if (monthIdx < 9) q = '3º Trim.';
-                              else q = '4º Trim.';
-                              
-                              const monthName = d.toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" });
-                              mLabel = monthName.charAt(0).toUpperCase() + monthName.slice(1);
-                            }
-                          } catch(e) {}
-                        }
+                        {/* Navigation Row */}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-200/50 pb-4">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => navigateCalendar("prev")}
+                              className="p-1.5 border border-slate-200 hover:bg-white text-slate-600 rounded-xl transition cursor-pointer"
+                            >
+                              <ChevronLeft size={16} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const today = new Date();
+                                setAreaCalendarMonth(today.getMonth());
+                                setAreaCalendarYear(today.getFullYear());
+                                setSelectedAreaCalendarDay(today);
+                              }}
+                              className="px-2.5 py-1.5 border border-slate-200 hover:bg-white text-slate-700 text-[10px] font-bold rounded-xl transition uppercase tracking-wider cursor-pointer"
+                            >
+                              Hoje
+                            </button>
+                            <button
+                              onClick={() => navigateCalendar("next")}
+                              className="p-1.5 border border-slate-200 hover:bg-white text-slate-600 rounded-xl transition cursor-pointer"
+                            >
+                              <ChevronRight size={16} />
+                            </button>
+                            
+                            <h5 className="text-xs font-black text-slate-800 uppercase tracking-widest ml-1">
+                              {areaCalendarScale === "mes" && `${monthNames[areaCalendarMonth]} de ${areaCalendarYear}`}
+                              {areaCalendarScale === "trimestre" && `${Math.floor(areaCalendarMonth / 3) + 1}º Trimestre de ${areaCalendarYear}`}
+                              {areaCalendarScale === "semestre" && `${Math.floor(areaCalendarMonth / 6) + 1}º Semestre de ${areaCalendarYear}`}
+                            </h5>
+                          </div>
+                          
+                          {/* Legend of Statuses */}
+                          <div className="flex items-center gap-3 text-[9px] font-black uppercase tracking-wider text-slate-500">
+                            <div className="flex items-center gap-1">
+                              <span className="w-2 h-2 bg-emerald-500 rounded-full" /> Concluída
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="w-2 h-2 bg-blue-500 rounded-full" /> Em andamento
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="w-2 h-2 bg-slate-400 rounded-full" /> Não iniciada
+                            </div>
+                          </div>
+                        </div>
 
-                        const normStatus = normalizeStatus(t.status);
-                        const dlStatus = getDeadlineStatus(t.endDate, t.status);
-
-                        rows.push(
-                          <tr key={`task-${areaName}-${categoryName}-${t.id}`} className="hover:bg-slate-50 transition-colors bg-white">
-                            <td className="px-4 py-3 font-semibold text-slate-700">
-                              <div className="flex items-center" style={{ paddingLeft: `${depth * 20}px` }}>
-                                {subTasksCount > 0 ? (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleExpand(t.id);
-                                    }}
-                                    className="p-1 mr-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition"
-                                    title={isExpanded ? "Recolher subtarefas" : "Expandir subtarefas"}
-                                  >
-                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                  </button>
-                                ) : (
-                                  <span className="w-6 shrink-0" />
-                                )}
-                                <span className={cn(depth > 0 ? "text-slate-500 font-medium font-sans text-xs" : "text-slate-700 font-semibold")}>{t.title}</span>
-                                {subTasksCount > 0 && (
-                                  <span className="text-slate-400 font-normal ml-1">({subTasksCount})</span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-center text-slate-650 font-mono">
-                              {formattedStartDate !== '-' ? formattedStartDate : <span className="text-slate-300">-</span>}
-                            </td>
-                            <td className="px-4 py-3 text-center text-slate-650 font-mono">
-                              {formattedEndDate}
-                            </td>
-                            <td className="px-4 py-3 text-center text-slate-800 font-bold text-[11px]">
-                              {q !== '-' ? <span className="bg-white border border-slate-200 px-2.5 py-1 rounded-md shadow-sm">{q}</span> : <span className="text-slate-300">-</span>}
-                            </td>
-                            <td className="px-4 py-3 text-center text-slate-700 font-bold uppercase text-[10px]">
-                              {mLabel !== '-' ? mLabel : <span className="text-slate-300">-</span>}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {normStatus === "Concluída" ? (
-                                <div className="inline-flex items-center justify-center text-emerald-500" title="Status: Concluída">
-                                  <CheckCircle2 size={16} />
-                                </div>
-                              ) : normStatus === "Em andamento" ? (
-                                <div className="inline-flex items-center justify-center text-blue-500 animate-pulse" title="Status: Em andamento">
-                                  <Clock size={16} />
-                                </div>
-                              ) : (
-                                <div className="inline-flex items-center justify-center text-slate-300" title="Status: Não iniciada">
-                                  <Circle size={16} />
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {normStatus === "Concluída" ? (
-                                <div className="inline-flex items-center justify-center text-emerald-500" title="Situação: No Prazo (Concluída)">
-                                  <CheckCircle2 size={16} />
-                                </div>
-                              ) : dlStatus === "Atrasada" ? (
-                                <div className="inline-flex items-center justify-center text-rose-500" title="Situação: Atrasada">
-                                  <AlertCircle size={16} />
-                                </div>
-                              ) : dlStatus === "Crítica" ? (
-                                <div className="inline-flex items-center justify-center text-amber-500" title="Situação: Crítica">
-                                  <AlertTriangle size={16} />
-                                </div>
-                              ) : (
-                                <div className="inline-flex items-center justify-center text-emerald-500" title="Situação: No Prazo">
-                                  <CheckCircle2 size={16} />
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden w-full max-w-[120px]">
-                                  <div 
+                        {/* RENDER THE SCALES */}
+                        {areaCalendarScale === "mes" && (
+                          <div className="flex flex-col flex-1">
+                            {/* Weekdays */}
+                            <div className="grid grid-cols-7 gap-1 text-center font-bold text-[10px] uppercase text-slate-400 tracking-wider mb-2">
+                              {weekdayNames.map(dayName => (
+                                <div key={dayName}>{dayName}</div>
+                              ))}
+                            </div>
+                            
+                            {/* Calendar Days */}
+                            <div className="grid grid-cols-7 gap-1.5 bg-slate-100/50 p-1.5 rounded-2xl border border-slate-200/40 flex-1 min-h-[400px]">
+                              {getMonthDays(areaCalendarYear, areaCalendarMonth).map(({ date, isCurrentMonth, dayNum }, idx) => {
+                                const activeTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, date));
+                                const isToday = new Date().toDateString() === date.toDateString();
+                                const isSelected = activeDay.toDateString() === date.toDateString();
+                                
+                                return (
+                                  <div
+                                    key={idx}
+                                    onClick={() => setSelectedAreaCalendarDay(date)}
                                     className={cn(
-                                      "h-full rounded-full transition-all duration-300",
-                                      t.progress === 100 ? "bg-emerald-500" : t.progress >= 50 ? "bg-blue-500" : t.progress > 0 ? "bg-amber-400" : "bg-slate-300"
+                                      "bg-white rounded-xl p-1.5 border flex flex-col justify-between transition-all cursor-pointer min-h-[75px] group",
+                                      isCurrentMonth ? "border-slate-100" : "border-slate-100/30 opacity-40 hover:opacity-70",
+                                      isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/10 border-indigo-200" : "hover:border-indigo-400 hover:shadow-xs"
                                     )}
-                                    style={{ width: `${t.progress || 0}%` }}
-                                  />
+                                  >
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[8px] font-bold text-slate-400">
+                                        {activeTasks.length > 0 && `${activeTasks.length} atv`}
+                                      </span>
+                                      <span className={cn(
+                                        "w-5 h-5 flex items-center justify-center text-[10px] font-black rounded-full",
+                                        isToday ? "bg-indigo-600 text-white shadow-sm" : isSelected ? "bg-indigo-100 text-indigo-700" : "text-slate-700"
+                                      )}>
+                                        {dayNum}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="space-y-1 overflow-hidden flex-1 flex flex-col justify-end mt-1">
+                                      {activeTasks.slice(0, 2).map(t => {
+                                        const statusName = normalizeStatus(t.status);
+                                        const colorClass = statusName === "Concluída" 
+                                          ? "bg-emerald-500" 
+                                          : statusName === "Em andamento" 
+                                          ? "bg-blue-500" 
+                                          : "bg-slate-400";
+                                          
+                                        return (
+                                          <div
+                                            key={t.id}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleEditTask(t);
+                                            }}
+                                            className={cn(
+                                              "px-1 py-0.5 rounded text-[8px] font-bold uppercase text-white truncate transition-all flex items-center gap-1 border border-black/5 hover:brightness-95",
+                                              colorClass
+                                            )}
+                                            title={getTaskDisplayName(t)}
+                                          >
+                                            <span className="truncate">{getTaskDisplayName(t)}</span>
+                                          </div>
+                                        );
+                                      })}
+                                      {activeTasks.length > 2 && (
+                                        <div className="text-[8px] font-extrabold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded text-center uppercase tracking-wider">
+                                          + {activeTasks.length - 2} mais
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* TRIMESTRE & SEMESTRE SCALES */}
+                        {(areaCalendarScale === "trimestre" || areaCalendarScale === "semestre") && (
+                          <div className={cn(
+                            "grid gap-4 flex-1",
+                            areaCalendarScale === "trimestre" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
+                          )}>
+                            {monthsInView.map(m => {
+                              const monthDays = getMonthDays(areaCalendarYear, m);
+                              
+                              return (
+                                <div key={m} className="bg-white border border-slate-200/60 rounded-2xl p-3 flex flex-col">
+                                  <h6 
+                                    onClick={() => {
+                                      setAreaCalendarMonth(m);
+                                      setAreaCalendarScale("mes");
+                                    }}
+                                    className="text-[10px] font-black text-slate-800 uppercase tracking-widest mb-2 border-b border-slate-100 pb-1 flex justify-between items-center cursor-pointer hover:text-indigo-600 transition-colors"
+                                  >
+                                    <span>{monthNames[m]}</span>
+                                    <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black">Mês</span>
+                                  </h6>
+                                  
+                                  <div className="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-slate-400 uppercase mb-1">
+                                    {weekdayNames.map(dayName => (
+                                      <div key={dayName}>{dayName[0]}</div>
+                                    ))}
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-7 gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100 flex-1">
+                                    {monthDays.map(({ date, isCurrentMonth, dayNum }, idx) => {
+                                      const activeTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, date));
+                                      const isToday = new Date().toDateString() === date.toDateString();
+                                      const isSelected = activeDay.toDateString() === date.toDateString();
+                                      
+                                      const completed = activeTasks.filter(t => normalizeStatus(t.status) === "Concluída").length;
+                                      const inProgress = activeTasks.filter(t => normalizeStatus(t.status) === "Em andamento").length;
+                                      const pending = activeTasks.length - completed - inProgress;
+                                      
+                                      return (
+                                        <div
+                                          key={idx}
+                                          onClick={() => setSelectedAreaCalendarDay(date)}
+                                          className={cn(
+                                            "aspect-square rounded-lg flex flex-col items-center justify-center relative cursor-pointer group transition-all text-[9px] font-bold",
+                                            isCurrentMonth ? "text-slate-700 bg-white" : "text-slate-300 opacity-30",
+                                            isSelected ? "bg-indigo-100 text-indigo-700 font-extrabold ring-1 ring-indigo-300" : "hover:bg-slate-100",
+                                            isToday && !isSelected ? "border border-indigo-500 font-black text-indigo-600" : ""
+                                          )}
+                                        >
+                                          <span>{dayNum}</span>
+                                          {activeTasks.length > 0 && isCurrentMonth && (
+                                            <div className="absolute bottom-0.5 flex gap-0.5 justify-center">
+                                              {completed > 0 && <span className="w-1 h-1 bg-emerald-500 rounded-full" />}
+                                              {inProgress > 0 && <span className="w-1 h-1 bg-blue-500 rounded-full" />}
+                                              {pending > 0 && <span className="w-1 h-1 bg-slate-400 rounded-full" />}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                                <span className={cn(
-                                  "text-[10px] font-black w-8 text-right leading-none",
-                                  t.progress === 100 ? "text-emerald-600 animate-pulse" : t.progress >= 50 ? "text-blue-600" : t.progress > 0 ? "text-amber-600" : "text-slate-400"
-                                )}>
-                                  {t.progress || 0}%
-                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        
+                      </div>
+
+                      {/* Side Grouped Agenda Panel */}
+                      <div className="lg:col-span-1 flex flex-col space-y-4">
+                        <div className="bg-white border border-slate-200/70 rounded-3xl p-5 shadow-sm flex flex-col h-full min-h-[350px]">
+                          <div className="border-b border-slate-100 pb-3 mb-3">
+                            <div className="flex items-center gap-2 text-indigo-600 mb-1">
+                              <CalendarDays size={16} />
+                              <h3 className="text-[10px] font-black uppercase tracking-wider">Atividades por Área</h3>
+                            </div>
+                            <p className="text-[11px] font-bold text-slate-800 leading-snug">
+                              {activeDay.toLocaleDateString("pt-BR", { weekday: 'short', day: 'numeric', month: 'short' })} de {activeDay.getFullYear()}
+                            </p>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto space-y-4 pr-1 max-h-[420px] custom-scrollbar">
+                            {groupedActiveDayTasks.length === 0 ? (
+                              <div className="py-12 text-center text-slate-400 font-semibold italic text-xs flex flex-col items-center justify-center space-y-2">
+                                <CalendarCheck size={28} className="text-slate-300" />
+                                <span>Nenhuma atividade nesta data.</span>
                               </div>
-                            </td>
-                            <td className="px-4 py-3 text-center w-[85px]">
-                              <button
-                                onClick={() => setTimelineTaskId(t.id)}
-                                className="p-1 px-2 bg-white border border-slate-200 text-slate-600 hover:text-adasa-mid hover:border-adasa-200 rounded-lg transition shadow-sm text-xs font-bold inline-flex items-center justify-center"
-                                title="Ver Linha do Tempo"
-                              >
-                                <Activity size={12} className="text-indigo-600" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
+                            ) : (
+                              groupedActiveDayTasks.map(group => (
+                                <div key={group.areaName} className="space-y-2">
+                                  {/* Area Badge/Header */}
+                                  <div className="bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg text-[9px] font-black text-slate-700 uppercase tracking-wider flex justify-between items-center">
+                                    <span className="truncate max-w-[150px]">{group.areaName}</span>
+                                    <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">{group.tasks.length}</span>
+                                  </div>
+                                  
+                                  {/* Tasks */}
+                                  <div className="space-y-1.5 pl-1.5 border-l border-slate-100">
+                                    {group.tasks.map(t => {
+                                      const normStatus = normalizeStatus(t.status);
+                                      let statusClasses = "bg-slate-150 text-slate-600";
+                                      if (normStatus === "Concluída") {
+                                        statusClasses = "bg-emerald-500 text-white";
+                                      } else if (normStatus === "Em andamento") {
+                                        statusClasses = "bg-blue-500 text-white";
+                                      }
+                                      
+                                      return (
+                                        <div
+                                          key={t.id}
+                                          onClick={() => handleEditTask(t)}
+                                          className="border border-slate-100 hover:border-indigo-300 p-2.5 rounded-xl transition-all cursor-pointer bg-white hover:bg-slate-50/50 flex flex-col space-y-1"
+                                        >
+                                          <div className="flex items-start justify-between gap-1.5">
+                                            <span className="text-[8px] text-slate-400 font-bold">ID: {t.id}</span>
+                                            <span className={cn("text-[7px] font-black uppercase px-1 rounded-sm leading-none py-0.5", statusClasses)}>
+                                              {normStatus}
+                                            </span>
+                                          </div>
+                                          <h6 className="text-[11px] font-black text-slate-800 leading-snug hover:text-indigo-600 transition-colors">
+                                            {getTaskDisplayName(t)}
+                                          </h6>
+                                          {t.endDate && (
+                                            <div className="text-[8px] font-bold text-slate-400">
+                                              Fim: {t.endDate.split("T")[0].split("-").reverse().join("/")}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="overflow-x-auto border border-slate-200/60 rounded-2xl shadow-xs">
+                  <table className="w-full text-left text-xs text-slate-600 border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 font-black uppercase text-[10px] tracking-wider select-none">
+                        <th 
+                          onClick={() => handleAreaTableSort("title")}
+                          className="px-4 py-3.5 min-w-[280px] cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Título da Tarefa <AreaTableSortIcon field="title" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("start")}
+                          className="px-4 py-3.5 text-center min-w-[110px] cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Início <AreaTableSortIcon field="start" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("end")}
+                          className="px-4 py-3.5 text-center min-w-[110px] cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Prazo <AreaTableSortIcon field="end" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("quarter")}
+                          className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Trimestre <AreaTableSortIcon field="quarter" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("month")}
+                          className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Mês <AreaTableSortIcon field="month" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("status")}
+                          className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Status <AreaTableSortIcon field="status" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("situation")}
+                          className="px-4 py-3.5 text-center cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Situação <AreaTableSortIcon field="situation" />
+                        </th>
+                        <th 
+                          onClick={() => handleAreaTableSort("progress")}
+                          className="px-4 py-3.5 min-w-[140px] cursor-pointer hover:bg-slate-100/80 transition-colors"
+                        >
+                          Progresso <AreaTableSortIcon field="progress" />
+                        </th>
+                        <th className="px-4 py-3.5 text-center min-w-[85px]">
+                          Timeline
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(() => {
+                        const sortTaskList = sortAreaTaskList;
 
-                        if (isExpanded && subTasksCount > 0) {
-                          const children = (childrenMap[t.id] || []).filter(c => filteredTasks.some(x => x.id === c.id));
-                          const sortedChildren = sortTaskList(children);
-                          sortedChildren.forEach(child => {
-                            renderRowHierarchical(child, depth + 1, areaName, categoryName);
-                          });
-                        }
-                      };
+                        const targetAreas = selectedAreaIds.length > 0 
+                          ? areas.filter(a => selectedAreaIds.includes(a.id))
+                          : areas;
 
-                      sortedAreas.forEach(area => {
-                        const areaTasks = filteredTasks.filter(t => {
-                          const hasArea = t.areaIds && t.areaIds.length > 0;
-                          if (area.id === 0) {
-                            return !hasArea;
-                          } else {
-                            return t.areaIds && t.areaIds.includes(area.id);
+                        const allAreas = [
+                          ...targetAreas,
+                          ...(selectedAreaIds.length === 0 ? [{ id: 0, name: "Sem Área de Atuação" }] : [])
+                        ];
+
+                        const sortedAreas = [...allAreas].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+                        const sortedCategories = [...categories].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+                        
+                        const allCategoriesForGroup = [
+                          ...sortedCategories,
+                          { id: -1, name: "Sem Categoria" }
+                        ];
+
+                        const rows: React.ReactNode[] = [];
+
+                        const renderRowHierarchical = (t: Task, depth: number, areaName: string, categoryName: string) => {
+                          const subTasksCount = childrenMap[t.id]?.length || 0;
+                          const isExpanded = expandedTasks[t.id] !== undefined ? expandedTasks[t.id] : (isAnyFilterActive ? true : false);
+                          
+                          let q = '-';
+                          let mLabel = '-';
+                          let formattedEndDate = '-';
+                          let formattedStartDate = '-';
+                          
+                          if (t.startDate) {
+                            try {
+                              const dStart = new Date(t.startDate);
+                              if (!isNaN(dStart.getTime())) {
+                                formattedStartDate = dStart.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+                              }
+                            } catch(e) {}
                           }
-                        });
+                          
+                          if (t.endDate) {
+                            try {
+                              const d = new Date(t.endDate);
+                              if (!isNaN(d.getTime())) {
+                                formattedEndDate = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+                                const monthIdx = d.getUTCMonth();
+                                
+                                if (monthIdx < 3) q = '1º Trim.';
+                                else if (monthIdx < 6) q = '2º Trim.';
+                                else if (monthIdx < 9) q = '3º Trim.';
+                                else q = '4º Trim.';
+                                
+                                const monthName = d.toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" });
+                                mLabel = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+                              }
+                            } catch(e) {}
+                          }
 
-                        if (areaTasks.length > 0) {
-                          const isAreaCollapsed = collapsedAreas[area.name] || false;
+                          const normStatus = normalizeStatus(t.status);
+                          const dlStatus = getDeadlineStatus(t.endDate, t.status);
 
                           rows.push(
-                            <tr 
-                              key={`area-${area.name}`} 
-                              className="bg-slate-100/75 border-t-2 border-t-slate-200 cursor-pointer hover:bg-slate-200 transition-colors"
-                              onClick={() => setCollapsedAreas(prev => ({ ...prev, [area.name]: !prev[area.name] }))}
-                            >
-                              <td colSpan={9} className="px-4 py-3 font-black text-slate-800 uppercase tracking-wide border-l-4 border-l-indigo-500">
-                                <div className="flex items-center gap-2">
-                                  {isAreaCollapsed ? <ChevronRight size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-                                  <span>{area.name}</span>
-                                  <span className="text-[10px] text-slate-500 font-bold ml-2 bg-slate-200 px-2 py-0.5 rounded-full">{areaTasks.length} TAREFA(S)</span>
+                            <tr key={`task-${areaName}-${categoryName}-${t.id}`} className="hover:bg-slate-50 transition-colors bg-white">
+                              <td className="px-4 py-3 font-semibold text-slate-700">
+                                <div className="flex items-center" style={{ paddingLeft: `${depth * 20}px` }}>
+                                  {subTasksCount > 0 ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleExpand(t.id);
+                                      }}
+                                      className="p-1 mr-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition"
+                                      title={isExpanded ? "Recolher subtarefas" : "Expandir subtarefas"}
+                                    >
+                                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </button>
+                                  ) : (
+                                    <span className="w-6 shrink-0" />
+                                  )}
+                                  <span className={cn(depth > 0 ? "text-slate-500 font-medium font-sans text-xs" : "text-slate-700 font-semibold")}>{t.title}</span>
+                                  {subTasksCount > 0 && (
+                                    <span className="text-slate-400 font-normal ml-1">({subTasksCount})</span>
+                                  )}
                                 </div>
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-650 font-mono">
+                                {formattedStartDate !== '-' ? formattedStartDate : <span className="text-slate-300">-</span>}
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-650 font-mono">
+                                {formattedEndDate}
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-800 font-bold text-[11px]">
+                                {q !== '-' ? <span className="bg-white border border-slate-200 px-2.5 py-1 rounded-md shadow-sm">{q}</span> : <span className="text-slate-300">-</span>}
+                              </td>
+                              <td className="px-4 py-3 text-center text-slate-700 font-bold uppercase text-[10px]">
+                                {mLabel !== '-' ? mLabel : <span className="text-slate-300">-</span>}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {normStatus === "Concluída" ? (
+                                  <div className="inline-flex items-center justify-center text-emerald-500" title="Status: Concluída">
+                                    <CheckCircle2 size={16} />
+                                  </div>
+                                ) : normStatus === "Em andamento" ? (
+                                  <div className="inline-flex items-center justify-center text-blue-500 animate-pulse" title="Status: Em andamento">
+                                    <Clock size={16} />
+                                  </div>
+                                ) : (
+                                  <div className="inline-flex items-center justify-center text-slate-300" title="Status: Não iniciada">
+                                    <Circle size={16} />
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {normStatus === "Concluída" ? (
+                                  <div className="inline-flex items-center justify-center text-emerald-500" title="Situação: No Prazo (Concluída)">
+                                    <CheckCircle2 size={16} />
+                                  </div>
+                                ) : dlStatus === "Atrasada" ? (
+                                  <div className="inline-flex items-center justify-center text-rose-500" title="Situação: Atrasada">
+                                    <AlertCircle size={16} />
+                                  </div>
+                                ) : dlStatus === "Crítica" ? (
+                                  <div className="inline-flex items-center justify-center text-amber-500" title="Situação: Crítica">
+                                    <AlertTriangle size={16} />
+                                  </div>
+                                ) : (
+                                  <div className="inline-flex items-center justify-center text-emerald-500" title="Situação: No Prazo">
+                                    <CheckCircle2 size={16} />
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden w-full max-w-[120px]">
+                                    <div 
+                                      className={cn(
+                                        "h-full rounded-full transition-all duration-300",
+                                        t.progress === 100 ? "bg-emerald-500" : t.progress >= 50 ? "bg-blue-500" : t.progress > 0 ? "bg-amber-400" : "bg-slate-300"
+                                      )}
+                                      style={{ width: `${t.progress || 0}%` }}
+                                    />
+                                  </div>
+                                  <span className={cn(
+                                    "text-[10px] font-black w-8 text-right leading-none",
+                                    t.progress === 100 ? "text-emerald-600 animate-pulse" : t.progress >= 50 ? "text-blue-600" : t.progress > 0 ? "text-amber-600" : "text-slate-400"
+                                  )}>
+                                    {t.progress || 0}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-center w-[85px]">
+                                <button
+                                  onClick={() => setTimelineTaskId(t.id)}
+                                  className="p-1 px-2 bg-white border border-slate-200 text-slate-600 hover:text-adasa-mid hover:border-adasa-200 rounded-lg transition shadow-sm text-xs font-bold inline-flex items-center justify-center"
+                                  title="Ver Linha do Tempo"
+                                >
+                                  <Activity size={12} className="text-indigo-600" />
+                                </button>
                               </td>
                             </tr>
                           );
 
-                          if (!isAreaCollapsed) {
-                            const secondLevelGroups = areaTableGroupMode === "category" 
-                              ? allCategoriesForGroup 
-                              : [
-                                  { id: "Não iniciada", name: "Não iniciada" },
-                                  { id: "Em andamento", name: "Em andamento" },
-                                  { id: "Concluída", name: "Concluída" }
-                                ];
-
-                            secondLevelGroups.forEach(groupDesc => {
-                              const groupTasks = areaTasks.filter(t => {
-                                if (areaTableGroupMode === "category") {
-                                  const hasCat = t.categoryIds && t.categoryIds.length > 0;
-                                  if (groupDesc.id === -1) {
-                                    return !hasCat;
-                                  } else {
-                                    return t.categoryIds && t.categoryIds.includes(groupDesc.id as number);
-                                  }
-                                } else {
-                                  return normalizeStatus(t.status) === groupDesc.name;
-                                }
-                              });
-
-                              if (groupTasks.length > 0) {
-                                const collKey = `${area.name}-${groupDesc.name}`;
-                                const isCategoryCollapsed = collapsedTableCategories[collKey] || false;
-
-                                rows.push(
-                                  <tr 
-                                    key={areaTableGroupMode === "category" ? `cat-header-${area.name}-${groupDesc.name}` : `status-header-${area.name}-${groupDesc.name}`}
-                                    className="bg-slate-50/75 border-t border-t-slate-100 cursor-pointer hover:bg-slate-100/75 transition-colors select-none"
-                                    onClick={() => setCollapsedTableCategories(prev => ({
-                                      ...prev,
-                                      [collKey]: !isCategoryCollapsed
-                                    }))}
-                                  >
-                                    <td colSpan={9} className={cn("px-4 py-2 font-bold text-slate-600 border-l-[3px]", areaTableGroupMode === "status" && groupDesc.name === "Concluída" ? "border-l-emerald-500" : areaTableGroupMode === "status" && groupDesc.name === "Em andamento" ? "border-l-blue-500" : areaTableGroupMode === "status" ? "border-l-slate-400" : "border-l-amber-500/80")}>
-                                      <div className="flex items-center gap-2 pl-4">
-                                        {isCategoryCollapsed ? <ChevronRight size={12} className="text-slate-400" /> : <ChevronDown size={12} className="text-slate-400" />}
-                                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                                          {areaTableGroupMode === "category" ? "Categoria:" : "Status:"}
-                                        </span>
-                                        <span className="text-xs font-black text-slate-700">{groupDesc.name}</span>
-                                        <span className="text-[9px] text-slate-500 font-bold ml-1.5 bg-slate-200/60 border border-slate-200/60 px-1.5 py-0.5 rounded-full">{groupTasks.length} TAREFA(S)</span>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-
-                                if (!isCategoryCollapsed) {
-                                  const groupRoots = groupTasks.filter(t => !t.parentId || !groupTasks.some(x => x.id === t.parentId));
-                                  const sortedRoots = sortTaskList(groupRoots);
-
-                                  sortedRoots.forEach(t => {
-                                    renderRowHierarchical(t, 0, area.name, groupDesc.name);
-                                  });
-                                }
-                              }
+                          if (isExpanded && subTasksCount > 0) {
+                            const children = (childrenMap[t.id] || []).filter(c => filteredTasks.some(x => x.id === c.id));
+                            const sortedChildren = sortTaskList(children);
+                            sortedChildren.forEach(child => {
+                              renderRowHierarchical(child, depth + 1, areaName, categoryName);
                             });
                           }
+                        };
+
+                        sortedAreas.forEach(area => {
+                          const areaTasks = filteredTasks.filter(t => {
+                            const hasArea = t.areaIds && t.areaIds.length > 0;
+                            if (area.id === 0) {
+                              return !hasArea;
+                            } else {
+                              return t.areaIds && t.areaIds.includes(area.id);
+                            }
+                          });
+
+                          if (areaTasks.length > 0) {
+                            const isAreaCollapsed = collapsedAreas[area.name] || false;
+
+                            rows.push(
+                              <tr 
+                                key={`area-${area.name}`} 
+                                className="bg-slate-100/75 border-t-2 border-t-slate-200 cursor-pointer hover:bg-slate-200 transition-colors"
+                                onClick={() => setCollapsedAreas(prev => ({ ...prev, [area.name]: !prev[area.name] }))}
+                              >
+                                <td colSpan={9} className="px-4 py-3 font-black text-slate-800 uppercase tracking-wide border-l-4 border-l-indigo-500">
+                                  <div className="flex items-center gap-2">
+                                    {isAreaCollapsed ? <ChevronRight size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                                    <span>{area.name}</span>
+                                    <span className="text-[10px] text-slate-500 font-bold ml-2 bg-slate-200 px-2 py-0.5 rounded-full">{areaTasks.length} TAREFA(S)</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+
+                            if (!isAreaCollapsed) {
+                              const secondLevelGroups = areaTableGroupMode === "category" 
+                                ? allCategoriesForGroup 
+                                : [
+                                    { id: "Não iniciada", name: "Não iniciada" },
+                                    { id: "Em andamento", name: "Em andamento" },
+                                    { id: "Concluída", name: "Concluída" }
+                                  ];
+
+                              secondLevelGroups.forEach(groupDesc => {
+                                const groupTasks = areaTasks.filter(t => {
+                                  if (areaTableGroupMode === "category") {
+                                    const hasCat = t.categoryIds && t.categoryIds.length > 0;
+                                    if (groupDesc.id === -1) {
+                                      return !hasCat;
+                                    } else {
+                                      return t.categoryIds && t.categoryIds.includes(groupDesc.id as number);
+                                    }
+                                  } else {
+                                    return normalizeStatus(t.status) === groupDesc.name;
+                                  }
+                                });
+
+                                if (groupTasks.length > 0) {
+                                  const collKey = `${area.name}-${groupDesc.name}`;
+                                  const isCategoryCollapsed = collapsedTableCategories[collKey] || false;
+
+                                  rows.push(
+                                    <tr 
+                                      key={areaTableGroupMode === "category" ? `cat-header-${area.name}-${groupDesc.name}` : `status-header-${area.name}-${groupDesc.name}`}
+                                      className="bg-slate-50/75 border-t border-t-slate-100 cursor-pointer hover:bg-slate-100/75 transition-colors select-none"
+                                      onClick={() => setCollapsedTableCategories(prev => ({
+                                        ...prev,
+                                        [collKey]: !isCategoryCollapsed
+                                      }))}
+                                    >
+                                      <td colSpan={9} className={cn("px-4 py-2 font-bold text-slate-600 border-l-[3px]", areaTableGroupMode === "status" && groupDesc.name === "Concluída" ? "border-l-emerald-500" : areaTableGroupMode === "status" && groupDesc.name === "Em andamento" ? "border-l-blue-500" : areaTableGroupMode === "status" ? "border-l-slate-400" : "border-l-amber-500/80")}>
+                                        <div className="flex items-center gap-2 pl-4">
+                                          {isCategoryCollapsed ? <ChevronRight size={12} className="text-slate-400" /> : <ChevronDown size={12} className="text-slate-400" />}
+                                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                                            {areaTableGroupMode === "category" ? "Categoria:" : "Status:"}
+                                          </span>
+                                          <span className="text-xs font-black text-slate-700">{groupDesc.name}</span>
+                                          <span className="text-[9px] text-slate-500 font-bold ml-1.5 bg-slate-200/60 border border-slate-200/60 px-1.5 py-0.5 rounded-full">{groupTasks.length} TAREFA(S)</span>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+
+                                  if (!isCategoryCollapsed) {
+                                    const groupRoots = groupTasks.filter(t => !t.parentId || !groupTasks.some(x => x.id === t.parentId));
+                                    const sortedRoots = sortTaskList(groupRoots);
+
+                                    sortedRoots.forEach(t => {
+                                      renderRowHierarchical(t, 0, area.name, groupDesc.name);
+                                    });
+                                  }
+                                }
+                              });
+                            }
+                          }
+                        });
+
+                        if (rows.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={9} className="p-12 text-center text-slate-400 italic font-bold">
+                                Nenhuma tarefa encontrada com os filtros atuais.
+                              </td>
+                            </tr>
+                          );
                         }
-                      });
 
-                      if (rows.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan={9} className="p-12 text-center text-slate-400 italic font-bold">
-                              Nenhuma tarefa encontrada com os filtros atuais.
-                            </td>
-                          </tr>
-                        );
-                      }
-
-                      return rows;
-                    })()}
-                  </tbody>
-                </table>
-              </div>
+                        return rows;
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
           </div>
@@ -6601,8 +7242,8 @@ export function PlanningTab({
               </div>
             </div>
 
-            {/* Row 3: Status, Situation, Priority and Classification Select filters */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Row 3: Status, Situation, Priority, Classification and Tipo Select filters */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">🚦 Status</span>
                 <select
@@ -6655,6 +7296,19 @@ export function PlanningTab({
                   <option value="all">Todas as Classificações</option>
                   <option value="true">PROGRAMADAS</option>
                   <option value="false">EXTRAORDINÁRIAS</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">📝 Tipo de Tarefa</span>
+                <select
+                  value={taskTypeFilter}
+                  onChange={(e) => setTaskTypeFilter(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-adasa-mid bg-white text-slate-700 font-bold"
+                >
+                  <option value="all">Todos os Tipos</option>
+                  <option value="default">PADRÃO</option>
+                  <option value="fiscalizacao">FISCALIZAÇÃO</option>
                 </select>
               </div>
             </div>
@@ -6780,6 +7434,12 @@ export function PlanningTab({
                   className={`flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap shadow-sm ${viewMode === "gantt" && timelineTaskId === null ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"}`}
                 >
                   <CalendarRange size={16} /> Gantt
+                </button>
+                <button
+                  onClick={() => { setViewMode("calendar"); setTimelineTaskId(null); }}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap shadow-sm ${viewMode === "calendar" && timelineTaskId === null ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"}`}
+                >
+                  <Calendar size={16} /> Calendário
                 </button>
                 {timelineTaskId !== null && (
                   <button
@@ -8295,6 +8955,506 @@ export function PlanningTab({
                   );
                })()}
 
+              {viewMode === "calendar" && (() => {
+                const parseSafeDate = (dateStr: string | null | undefined): Date | null => {
+                  if (!dateStr) return null;
+                  try {
+                    let d: Date;
+                    if (dateStr.includes("-")) {
+                      const parts = dateStr.split("T")[0].split("-");
+                      d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                    } else {
+                      d = new Date(dateStr);
+                    }
+                    return isNaN(d.getTime()) ? null : d;
+                  } catch (e) {
+                    return null;
+                  }
+                };
+
+                const isTaskActiveOnDay = (task: any, day: Date) => {
+                  if (!task.startDate || !task.endDate) return false;
+                  const start = parseSafeDate(task.startDate);
+                  const end = parseSafeDate(task.endDate);
+                  if (!start || !end) return false;
+                  const s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+                  const e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+                  const d = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+                  return d >= s && d <= e;
+                };
+
+                const getMonthDays = (year: number, month: number) => {
+                  const firstDayIndex = new Date(year, month, 1).getDay();
+                  const totalDays = new Date(year, month + 1, 0).getDate();
+                  const prevMonthTotalDays = new Date(year, month, 0).getDate();
+                  
+                  const cells: { date: Date; isCurrentMonth: boolean; dayNum: number }[] = [];
+                  
+                  for (let i = firstDayIndex - 1; i >= 0; i--) {
+                    const d = prevMonthTotalDays - i;
+                    cells.push({
+                      date: new Date(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1, d),
+                      isCurrentMonth: false,
+                      dayNum: d
+                    });
+                  }
+                  
+                  for (let d = 1; d <= totalDays; d++) {
+                    cells.push({
+                      date: new Date(year, month, d),
+                      isCurrentMonth: true,
+                      dayNum: d
+                    });
+                  }
+                  
+                  let nextMonthDay = 1;
+                  while (cells.length < 42) {
+                    cells.push({
+                      date: new Date(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1, nextMonthDay),
+                      isCurrentMonth: false,
+                      dayNum: nextMonthDay
+                    });
+                    nextMonthDay++;
+                  }
+                  
+                  return cells;
+                };
+
+                const monthNames = [
+                  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+                ];
+
+                const weekdayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+                const navigateCalendar = (direction: "prev" | "next") => {
+                  const step = direction === "prev" ? -1 : 1;
+                  if (calendarScale === "mes") {
+                    let newMonth = calendarMonth + step;
+                    let newYear = calendarYear;
+                    if (newMonth < 0) {
+                      newMonth = 11;
+                      newYear -= 1;
+                    } else if (newMonth > 11) {
+                      newMonth = 0;
+                      newYear += 1;
+                    }
+                    setCalendarMonth(newMonth);
+                    setCalendarYear(newYear);
+                  } else if (calendarScale === "trimestre") {
+                    let newMonth = calendarMonth + (step * 3);
+                    let newYear = calendarYear;
+                    if (newMonth < 0) {
+                      newMonth = 9;
+                      newYear -= 1;
+                    } else if (newMonth > 11) {
+                      newMonth = 0;
+                      newYear += 1;
+                    }
+                    const q = Math.floor(newMonth / 3);
+                    setCalendarMonth(q * 3);
+                    setCalendarYear(newYear);
+                  } else {
+                    setCalendarYear(calendarYear + step);
+                  }
+                };
+
+                const tasksWithDates = filteredTasks.filter(t => t.startDate && t.endDate);
+                const activeDay = selectedCalendarDay || new Date();
+                const activeDayTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, activeDay));
+
+                // Quarter computation
+                const currentQuarterIndex = Math.floor(calendarMonth / 3);
+                const quarterMonths = [currentQuarterIndex * 3, currentQuarterIndex * 3 + 1, currentQuarterIndex * 3 + 2];
+
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-4 text-left">
+                    {/* Main Calendar Area */}
+                    <div className="lg:col-span-3 bg-white border border-slate-200 rounded-[2rem] p-6 shadow-sm flex flex-col space-y-6">
+                      
+                      {/* Toolbar */}
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-5">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => navigateCalendar("prev")}
+                            className="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition cursor-pointer"
+                          >
+                            <ChevronLeft size={18} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              const today = new Date();
+                              setCalendarMonth(today.getMonth());
+                              setCalendarYear(today.getFullYear());
+                              setSelectedCalendarDay(today);
+                            }}
+                            className="px-3 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition uppercase tracking-wider cursor-pointer"
+                          >
+                            Hoje
+                          </button>
+                          <button
+                            onClick={() => navigateCalendar("next")}
+                            className="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition cursor-pointer"
+                          >
+                            <ChevronRight size={18} />
+                          </button>
+                          
+                          <h4 className="text-base font-black text-slate-800 uppercase tracking-wider ml-1">
+                            {calendarScale === "mes" && `${monthNames[calendarMonth]} de ${calendarYear}`}
+                            {calendarScale === "trimestre" && `${currentQuarterIndex + 1}º Trimestre de ${calendarYear}`}
+                            {calendarScale === "ano" && `Ano de ${calendarYear}`}
+                          </h4>
+                        </div>
+                        
+                        {/* Scale selector & Legend */}
+                        <div className="flex flex-wrap items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm shrink-0">
+                            <button
+                              onClick={() => { setCalendarScale("mes"); setSelectedCalendarDay(null); }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-extrabold transition-all duration-200 cursor-pointer ${calendarScale === "mes" ? "bg-white text-slate-850 shadow-sm border border-slate-200/40" : "text-slate-500 hover:text-slate-800"}`}
+                            >
+                              Mês
+                            </button>
+                            <button
+                              onClick={() => { setCalendarScale("trimestre"); setSelectedCalendarDay(null); }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-extrabold transition-all duration-200 cursor-pointer ${calendarScale === "trimestre" ? "bg-white text-slate-850 shadow-sm border border-slate-200/40" : "text-slate-500 hover:text-slate-800"}`}
+                            >
+                              Trimestre
+                            </button>
+                            <button
+                              onClick={() => { setCalendarScale("ano"); setSelectedCalendarDay(null); }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-extrabold transition-all duration-200 cursor-pointer ${calendarScale === "ano" ? "bg-white text-slate-850 shadow-sm border border-slate-200/40" : "text-slate-500 hover:text-slate-800"}`}
+                            >
+                              Ano
+                            </button>
+                          </div>
+                          
+                          <div className="flex flex-wrap items-center gap-3 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <div className="flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full" /> Concluída
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 bg-blue-500 rounded-full" /> Em andamento
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 bg-slate-400 rounded-full" /> Não iniciada
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Render Scale Specific Grid */}
+                      
+                      {/* MONTH SCALE */}
+                      {calendarScale === "mes" && (
+                        <div className="flex flex-col flex-1">
+                          {/* Weekdays row */}
+                          <div className="grid grid-cols-7 gap-1 text-center font-bold text-xs uppercase text-slate-400 tracking-wider mb-2">
+                            {weekdayNames.map(dayName => (
+                              <div key={dayName} className="py-1">{dayName}</div>
+                            ))}
+                          </div>
+                          
+                          {/* Calendar Grid */}
+                          <div className="grid grid-cols-7 gap-1.5 bg-slate-100/50 p-1.5 rounded-2xl border border-slate-100 flex-1 min-h-[480px]">
+                            {getMonthDays(calendarYear, calendarMonth).map(({ date, isCurrentMonth, dayNum }, idx) => {
+                              const activeTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, date));
+                              const isToday = new Date().toDateString() === date.toDateString();
+                              const isSelected = activeDay.toDateString() === date.toDateString();
+                              
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={() => setSelectedCalendarDay(date)}
+                                  className={cn(
+                                    "bg-white rounded-xl p-2 border flex flex-col justify-between transition-all cursor-pointer min-h-[85px] group",
+                                    isCurrentMonth ? "border-slate-100" : "border-slate-100/40 opacity-40 hover:opacity-75",
+                                    isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/20 border-indigo-200" : "hover:border-indigo-400 hover:shadow-xs"
+                                  )}
+                                >
+                                  {/* Day Number Header */}
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                      {activeTasks.length > 0 && `${activeTasks.length} ${activeTasks.length === 1 ? 'atv' : 'atvs'}`}
+                                    </span>
+                                    <span className={cn(
+                                      "w-6 h-6 flex items-center justify-center text-xs font-black rounded-full",
+                                      isToday ? "bg-indigo-600 text-white shadow-sm" : isSelected ? "bg-indigo-100 text-indigo-700" : "text-slate-700"
+                                    )}>
+                                      {dayNum}
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Tasks in the cell */}
+                                  <div className="space-y-1 overflow-hidden flex-1 flex flex-col justify-end">
+                                    {activeTasks.slice(0, 2).map(t => {
+                                      const statusName = normalizeStatus(t.status);
+                                      const colorClass = statusName === "Concluída" 
+                                        ? "bg-emerald-500" 
+                                        : statusName === "Em andamento" 
+                                        ? "bg-blue-500" 
+                                        : "bg-slate-400";
+                                        
+                                      return (
+                                        <div
+                                          key={t.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleEditTask(t);
+                                          }}
+                                          className={cn(
+                                            "px-1.5 py-0.5 rounded text-[9px] font-black uppercase text-white truncate transition-all flex items-center gap-1 border border-black/5 hover:brightness-95",
+                                            colorClass
+                                          )}
+                                          title={getTaskDisplayName(t)}
+                                        >
+                                          <span className="truncate">{getTaskDisplayName(t)}</span>
+                                        </div>
+                                      );
+                                    })}
+                                    {activeTasks.length > 2 && (
+                                      <div className="text-[9px] font-extrabold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded text-center uppercase tracking-wider">
+                                        + {activeTasks.length - 2} mais
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* QUARTER SCALE */}
+                      {calendarScale === "trimestre" && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1">
+                          {quarterMonths.map(m => {
+                            const monthDays = getMonthDays(calendarYear, m);
+                            
+                            return (
+                              <div key={m} className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4 flex flex-col">
+                                <h5 
+                                  onClick={() => {
+                                    setCalendarMonth(m);
+                                    setCalendarScale("mes");
+                                  }}
+                                  className="text-sm font-black text-slate-800 uppercase tracking-widest mb-3 border-b border-slate-200/50 pb-2 flex justify-between items-center cursor-pointer hover:text-indigo-600 transition-colors"
+                                >
+                                  <span>{monthNames[m]}</span>
+                                  <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-black">Visualizar</span>
+                                </h5>
+                                
+                                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                  {weekdayNames.map(dayName => (
+                                    <div key={dayName}>{dayName[0]}</div>
+                                  ))}
+                                </div>
+                                
+                                <div className="grid grid-cols-7 gap-1 bg-white p-1.5 rounded-xl border border-slate-200/60 flex-1">
+                                  {monthDays.map(({ date, isCurrentMonth, dayNum }, idx) => {
+                                    const activeTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, date));
+                                    const isToday = new Date().toDateString() === date.toDateString();
+                                    const isSelected = activeDay.toDateString() === date.toDateString();
+                                    
+                                    const completed = activeTasks.filter(t => normalizeStatus(t.status) === "Concluída").length;
+                                    const inProgress = activeTasks.filter(t => normalizeStatus(t.status) === "Em andamento").length;
+                                    const pending = activeTasks.length - completed - inProgress;
+                                    
+                                    return (
+                                      <div
+                                        key={idx}
+                                        onClick={() => setSelectedCalendarDay(date)}
+                                        className={cn(
+                                          "aspect-square rounded-lg flex flex-col items-center justify-center relative cursor-pointer group transition-all text-[10px] font-bold",
+                                          isCurrentMonth ? "text-slate-700" : "text-slate-300 opacity-30",
+                                          isSelected ? "bg-indigo-100 text-indigo-700 font-extrabold ring-1 ring-indigo-300" : "hover:bg-slate-100",
+                                          isToday && !isSelected ? "border border-indigo-500 font-black text-indigo-600" : ""
+                                        )}
+                                      >
+                                        <span>{dayNum}</span>
+                                        {activeTasks.length > 0 && (
+                                          <div className="absolute bottom-0.5 flex gap-0.5 justify-center">
+                                            {completed > 0 && <span className="w-1 h-1 bg-emerald-500 rounded-full" />}
+                                            {inProgress > 0 && <span className="w-1 h-1 bg-blue-500 rounded-full" />}
+                                            {pending > 0 && <span className="w-1 h-1 bg-slate-400 rounded-full" />}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      
+                      {/* YEAR SCALE */}
+                      {calendarScale === "ano" && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 flex-1">
+                          {monthNames.map((mName, mIdx) => {
+                            const monthDays = getMonthDays(calendarYear, mIdx);
+                            
+                            return (
+                              <div key={mIdx} className="bg-slate-50/40 border border-slate-150 rounded-xl p-3 flex flex-col">
+                                <h5 
+                                  onClick={() => {
+                                    setCalendarMonth(mIdx);
+                                    setCalendarScale("mes");
+                                  }}
+                                  className="text-xs font-black text-slate-800 uppercase tracking-wider mb-2 border-b border-slate-200/50 pb-1.5 flex justify-between items-center cursor-pointer hover:text-indigo-600 transition-colors"
+                                >
+                                  <span>{mName}</span>
+                                  <span className="text-[9px] text-slate-400 font-extrabold hover:underline">Abrir</span>
+                                </h5>
+                                
+                                <div className="grid grid-cols-7 gap-0.5 text-center text-[9px] font-bold text-slate-400 mb-1">
+                                  {weekdayNames.map(dayName => (
+                                    <div key={dayName}>{dayName[0]}</div>
+                                  ))}
+                                </div>
+                                
+                                <div className="grid grid-cols-7 gap-0.5 bg-white p-1 rounded-lg border border-slate-150 flex-1">
+                                  {monthDays.map(({ date, isCurrentMonth, dayNum }, idx) => {
+                                    const activeTasks = tasksWithDates.filter(t => isTaskActiveOnDay(t, date));
+                                    const isToday = new Date().toDateString() === date.toDateString();
+                                    const isSelected = activeDay.toDateString() === date.toDateString();
+                                    
+                                    return (
+                                      <div
+                                        key={idx}
+                                        onClick={() => setSelectedCalendarDay(date)}
+                                        className={cn(
+                                          "aspect-square rounded flex items-center justify-center relative cursor-pointer transition-all text-[8px] font-bold",
+                                          isCurrentMonth ? "text-slate-700" : "text-slate-300 opacity-20",
+                                          isSelected ? "bg-indigo-100 text-indigo-700 font-extrabold" : "hover:bg-slate-55",
+                                          activeTasks.length > 0 && isCurrentMonth && !isSelected ? "bg-indigo-50 text-indigo-600 font-extrabold" : "",
+                                          isToday ? "border border-indigo-400 font-black text-indigo-600" : ""
+                                        )}
+                                      >
+                                        <span>{dayNum}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      
+                    </div>
+                    
+                    {/* Side Agenda Panel */}
+                    <div className="lg:col-span-1 flex flex-col space-y-4">
+                      <div className="bg-white border border-slate-200 rounded-[2rem] p-6 shadow-sm flex flex-col h-full min-h-[400px]">
+                        <div className="border-b border-slate-100 pb-4 mb-4 text-left">
+                          <div className="flex items-center gap-2 text-indigo-600 mb-1">
+                            <CalendarDays size={18} />
+                            <h3 className="text-xs font-black uppercase tracking-wider">Atividades do Dia</h3>
+                          </div>
+                          <p className="text-sm font-black text-slate-800 leading-snug">
+                            {activeDay.toLocaleDateString("pt-BR", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                          </p>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-1 max-h-[500px] custom-scrollbar text-left">
+                          {activeDayTasks.length === 0 ? (
+                            <div className="py-12 text-center text-slate-400 font-semibold italic text-xs flex flex-col items-center justify-center space-y-2">
+                              <CalendarCheck size={32} className="text-slate-300" />
+                              <span>Nenhuma atividade programada para este dia.</span>
+                            </div>
+                          ) : (
+                            activeDayTasks.map(t => {
+                              const normStatus = normalizeStatus(t.status);
+                              
+                              let statusClasses = "bg-slate-100 text-slate-600 border-slate-200";
+                              if (normStatus === "Concluída") {
+                                statusClasses = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                              } else if (normStatus === "Em andamento") {
+                                statusClasses = "bg-blue-50 text-blue-700 border-blue-200";
+                              }
+                              
+                              return (
+                                <div
+                                  key={t.id}
+                                  onClick={() => handleEditTask(t)}
+                                  className="border border-slate-200 hover:border-indigo-400 p-4 rounded-2xl hover:shadow-xs transition-all cursor-pointer bg-white group space-y-2.5"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="text-[8px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                      ID: {t.id}
+                                    </span>
+                                    <span className={cn(
+                                      "text-[8px] font-black uppercase py-0.5 px-1.5 rounded border tracking-wider",
+                                      statusClasses
+                                    )}>
+                                      {normStatus}
+                                    </span>
+                                  </div>
+                                  
+                                  <h5 className="text-xs font-black text-slate-800 leading-snug group-hover:text-indigo-600 transition-colors">
+                                    {getTaskDisplayName(t)}
+                                  </h5>
+                                  
+                                  {t.description && (
+                                    <p className="text-[10px] text-slate-500 font-medium line-clamp-2 leading-relaxed">
+                                      {t.description}
+                                    </p>
+                                  )}
+                                  
+                                  {/* Progress bar */}
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                                      <span>Progresso</span>
+                                      <span className="text-indigo-600 font-extrabold">{t.progress || 0}%</span>
+                                    </div>
+                                    <div className="h-1 bg-slate-100 rounded-full overflow-hidden border border-slate-150">
+                                      <div 
+                                        className={cn(
+                                          "h-full transition-all duration-300",
+                                          normStatus === "Concluída" ? "bg-emerald-500" : "bg-indigo-600"
+                                        )}
+                                        style={{ width: `${t.progress || 0}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Date ranges and initials */}
+                                  <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-[9px] font-bold text-slate-400">
+                                    <span>Prazo: {t.endDate ? t.endDate.split("T")[0].split("-").reverse().join("/") : "-"}</span>
+                                    
+                                    {/* Avatars */}
+                                    {t.responsibleIds && t.responsibleIds.length > 0 && (
+                                      <div className="flex -space-x-1.5 overflow-hidden">
+                                        {t.responsibleIds.slice(0, 3).map(rid => {
+                                          const r = responsibles.find(resp => resp.id === rid);
+                                          if (!r) return null;
+                                          const init = r.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                                          return (
+                                            <div 
+                                              key={rid} 
+                                              className="w-4 h-4 rounded-full bg-slate-100 border border-white text-[8px] font-black text-slate-700 flex items-center justify-center shadow-xs" 
+                                              title={r.name}
+                                            >
+                                              {init}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
             {/* Timeline Modal Overlay */}
             {timelineTaskId !== null && (
               <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex flex-col p-4 sm:p-8 md:p-12 items-center justify-center overflow-hidden">
@@ -8958,7 +10118,7 @@ export function PlanningTab({
                     {/* Start Date */}
                     <div className="space-y-1">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Data prevista para o início da primeira atividade do modelo">
-                        <Calendar size={14} className="text-pink-500 shrink-0" />
+                        <Calendar size={14} className="text-adasa-mid shrink-0" />
                         Data de Início da Primeira Atividade
                       </label>
                       <div className="relative">
@@ -9208,7 +10368,7 @@ export function PlanningTab({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl max-w-2xl w-full border border-slate-200 text-left max-h-[85vh] overflow-y-auto custom-scrollbar space-y-4"
+              className="bg-white rounded-3xl p-6 shadow-2xl max-w-5xl w-full border border-slate-200 text-left max-h-[90vh] overflow-y-auto custom-scrollbar space-y-4"
             >
               <div className="flex justify-between items-center pb-3 border-b border-slate-100">
                 <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">
@@ -9231,6 +10391,24 @@ export function PlanningTab({
                   >
                     Formulário
                   </button>
+                  {editingTask.type === 'fiscalizacao' && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskFormTab("fiscalizacao")}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${taskFormTab === "fiscalizacao" ? "bg-adasa-mid text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                    >
+                      Dados da Fiscalização
+                    </button>
+                  )}
+                  {editingTask.type === 'recurso' && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskFormTab("recurso")}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${taskFormTab === "recurso" ? "bg-adasa-mid text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                    >
+                      Recurso de Revisão
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setTaskFormTab("notes")}
@@ -9262,7 +10440,7 @@ export function PlanningTab({
                 </div>
               )}
 
-              <form onSubmit={handleFormSubmit} className={taskFormTab === "form" ? "space-y-4" : "hidden"}>
+              <form onSubmit={handleFormSubmit} className={taskFormTab === "form" ? "grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4" : "hidden"}>
                 {/* Plan of Activities (Exactly One) */}
                 <div className="space-y-1">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Selecione a qual plano estratégico principal esta atividade se vincula">
@@ -9288,8 +10466,61 @@ export function PlanningTab({
                   </select>
                 </div>
 
-                {/* Title */}
+                {/* Tipo de Tarefa */}
                 <div className="space-y-1">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Define o tipo de atividade para campos específicos">
+                    <Layers size={14} className="text-adasa-mid shrink-0" />
+                    Tipo de Tarefa
+                  </label>
+                  <select
+                    value={editingTask.type || "default"}
+                    onChange={(e) => {
+                      const newType = e.target.value as 'default' | 'fiscalizacao' | 'recurso';
+                      setEditingTask(prev => {
+                        const next = { ...prev, type: newType };
+                        if (newType === 'fiscalizacao' && !next.fiscalizacaoData) {
+                          next.fiscalizacaoData = {
+                            codigo: "",
+                            objetivo: "",
+                            regiaoAdministrativa: "",
+                            latitude: "",
+                            longitude: "",
+                            tipo: "Direta",
+                            tipoFiscalizacao: "Operacional",
+                            servico: "Água",
+                            programacao: "Programada",
+                            imagens: [],
+                            documentos: [],
+                            constatacoes: [],
+                            termosNotificacao: []
+                          };
+                        }
+                        if (newType === 'recurso' && !next.recursoData) {
+                          next.recursoData = {
+                            classificacaoImovel: 'Residencial',
+                            tipoManifestacao: 'Reclamação',
+                            servico: 'Água',
+                            situacao: 'Recebido',
+                            resultadoProcesso: 'Em Análise',
+                            complexidade: 'Média'
+                          };
+                        }
+                        return next;
+                      });
+                      if (e.target.value === 'fiscalizacao') setTaskFormTab('fiscalizacao');
+                      else if (e.target.value === 'recurso') setTaskFormTab('recurso');
+                      else setTaskFormTab('form');
+                    }}
+                    className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-700 focus:border-adasa-mid outline-none transition-all placeholder:text-slate-400 bg-slate-50/10 focus:bg-white"
+                  >
+                    <option value="default">Padrão</option>
+                    <option value="fiscalizacao">Fiscalização</option>
+                    <option value="recurso">Recurso de Revisão</option>
+                  </select>
+                </div>
+
+                {/* Title */}
+                <div className="space-y-1 md:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Nome identificador da tarefa, etapa ou processo">
                     <Type size={14} className="text-purple-500 shrink-0" />
                     Título da Tarefa/Etapa
@@ -9416,10 +10647,10 @@ export function PlanningTab({
                 </div>
 
                 {/* Calendar Dates (Lock if rollup is enabled) */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 md:col-span-2">
                   <div className="space-y-1">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Data prevista para o início da atividade">
-                      <Calendar size={14} className="text-pink-500 shrink-0" />
+                      <Calendar size={14} className="text-adasa-mid shrink-0" />
                       Data de Início {editingTask.id && hasChildren(editingTask.id) && <Info size={11} className="text-dashed text-indigo-500 shrink-0" />}
                     </label>
                     <input
@@ -9457,7 +10688,7 @@ export function PlanningTab({
                 </div>
 
                 {/* Progress (Percentage) */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 md:col-span-2">
                   <div className="space-y-1">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Percentual de evolução da execução">
                       <Percent size={14} className="text-yellow-500 shrink-0" />
@@ -9506,7 +10737,7 @@ export function PlanningTab({
                 </div>
 
                 {/* Technical Meta Filters */}
-                <div className="space-y-1">
+                <div className="space-y-1 md:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Número de referência no Sistema Eletrônico de Informações (SEI)">
                     <FileText size={14} className="text-red-500 shrink-0" />
                     Processo SEI
@@ -9520,7 +10751,7 @@ export function PlanningTab({
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:col-span-2">
                   <div className="space-y-1">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Nível de urgência e importância (Baixa, Média, Alta)">
                       <AlertTriangle size={14} className="text-rose-500 shrink-0" />
@@ -9650,7 +10881,7 @@ export function PlanningTab({
                 </div>
 
                 {/* Designated Responsibles (One or More) */}
-                <div className="space-y-1">
+                <div className="space-y-1 md:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5" title="Profissionais ou equipes que atuarão na execução da atividade">
                     <Users size={14} className="text-sky-500 shrink-0" />
                     Responsáveis Designados (Filtrados por Área)
@@ -9694,7 +10925,7 @@ export function PlanningTab({
 
 
                 {formMode === "edit" && editingTask.updatedAt && (
-                  <div className="space-y-1">
+                  <div className="space-y-1 md:col-span-2">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider font-semibold">Atualização</label>
                     <div className="px-3.5 py-2 text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2">
                       <Clock size={12} className="text-slate-400" />
@@ -9703,13 +10934,13 @@ export function PlanningTab({
                   </div>
                 )}
 
-                <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 md:col-span-2">
                   <button
                     type="button"
                     onClick={() => setIsFormOpen(false)}
                     className="px-5 py-2 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
                   >
-                    Retroceder
+                    Fechar
                   </button>
                   <button
                     type="submit"
@@ -9833,7 +11064,7 @@ export function PlanningTab({
                       onClick={() => setIsFormOpen(false)}
                       className="px-5 py-2 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
                     >
-                      Retroceder
+                      Fechar
                     </button>
                     <button
                       onClick={handleFormSubmit}
@@ -9920,7 +11151,7 @@ export function PlanningTab({
                       onClick={() => setIsFormOpen(false)}
                       className="px-5 py-2 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
                     >
-                      Retroceder
+                      Fechar
                     </button>
                     <button
                       onClick={handleFormSubmit}
@@ -9935,6 +11166,40 @@ export function PlanningTab({
                 <div className="space-y-4">
                   {renderProgressCalc(editingTask.id || 0, editingTask.progress ?? 0)}
                 <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsFormOpen(false)}
+                      className="px-5 py-2 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              )}
+              {taskFormTab === "fiscalizacao" && editingTask.type === "fiscalizacao" && editingTask.fiscalizacaoData && (
+                <div className="space-y-4">
+                  <FiscalizacaoEditor 
+                    data={editingTask.fiscalizacaoData} 
+                    onChange={(data) => setEditingTask(prev => ({ ...prev, fiscalizacaoData: data }))}
+                  />
+                  <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsFormOpen(false)}
+                      className="px-5 py-2 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              )}
+              {taskFormTab === "recurso" && editingTask.type === "recurso" && editingTask.recursoData && (
+                <div className="space-y-4">
+                  <RecursoEditor 
+                    data={editingTask.recursoData} 
+                    onChange={(data) => setEditingTask(prev => ({ ...prev, recursoData: data }))}
+                  />
+                  <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
                     <button
                       type="button"
                       onClick={() => setIsFormOpen(false)}

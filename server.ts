@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { Pool } from "pg";
@@ -520,6 +521,11 @@ async function runStartupMigration() {
 
       // Ensure pl_tasks has weight column
       await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS weight REAL DEFAULT 1.0;`);
+      
+      await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'default';`);
+      await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS fiscalizacao_data JSONB;`);
+      await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS recurso_data JSONB;`);
+      await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS recurso_data JSONB;`);
 
       // Ensure pl_task_models and pl_model_tasks tables exist for task templates
       await client.query(`
@@ -790,6 +796,40 @@ export async function startServer(isVercel = false) {
       console.error(e);
     }
   }
+
+  // Setup multer for image uploads
+  const uploadsDir = path.join(publicPath, "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    try {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      cb(null, uploadsDir)
+    },
+    filename: function (req, file, cb) {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+      cb(null, uniqueSuffix + '-' + file.originalname)
+    }
+  });
+  const upload = multer({ storage: storage });
+
+  app.post("/api/upload", upload.array("images", 10), (req, res) => {
+    try {
+      if (!req.files || (req.files as any[]).length === 0) {
+        return res.status(400).json({ success: false, error: "Nenhum arquivo enviado" });
+      }
+      const files = req.files as Express.Multer.File[];
+      const urls = files.map(f => "/uploads/" + f.filename);
+      res.json({ success: true, urls });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ success: false, error: "Erro no upload" });
+    }
+  });
 
   // API to save GeoJSON
   app.post("/api/save-geojson", async (req, res) => {
@@ -1289,6 +1329,8 @@ export async function startServer(isVercel = false) {
             updatedAt: t.updated_at,
             updatedBy: t.updated_by,
             weight: t.weight !== undefined && t.weight !== null ? Number(t.weight) : 1,
+            type: t.type,
+            fiscalizacaoData: t.fiscalizacao_data, recursoData: t.recurso_data,
             areaIds: taskAreasMap[Number(t.id)] || [],
             responsibleIds: taskResponsiblesMap[Number(t.id)] || [],
             categoryIds: taskCategoriesMap[Number(t.id)] || []
@@ -2424,7 +2466,7 @@ export async function startServer(isVercel = false) {
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: "Usuário não encontrado" });
       }
-      const user = result.rows[0];
+      const user = result.rows[0] as any;
       res.json({
         success: true,
         data: {
@@ -2999,11 +3041,11 @@ export async function startServer(isVercel = false) {
       try {
         const result = await client.query(`
           WITH RECURSIVE task_tree AS (
-            SELECT id, title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, created_by, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, 1 AS depth
+            SELECT id, title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, created_by, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, type, fiscalizacao_data, recurso_data, 1 AS depth
             FROM pl_tasks
             WHERE parent_id IS NULL
             UNION ALL
-            SELECT t.id, t.title, t.description, t.start_date, t.end_date, t.status, t.parent_id, t.progress, t.priority, t.category, t.assigned_to, t.created_by, t.notes, t.plan_id, t.depends_on_task_id, t.updated_at, t.updated_by, t.sei_process, t.weight, tt.depth + 1
+            SELECT t.id, t.title, t.description, t.start_date, t.end_date, t.status, t.parent_id, t.progress, t.priority, t.category, t.assigned_to, t.created_by, t.notes, t.plan_id, t.depends_on_task_id, t.updated_at, t.updated_by, t.sei_process, t.weight, t.type, t.fiscalizacao_data, t.recurso_data, tt.depth + 1
             FROM pl_tasks t
             INNER JOIN task_tree tt ON t.parent_id = tt.id
           )
@@ -3082,6 +3124,8 @@ export async function startServer(isVercel = false) {
           updatedAt: t.updated_at,
           updatedBy: t.updated_by,
           weight: t.weight !== undefined && t.weight !== null ? Number(t.weight) : 1,
+          type: t.type,
+          fiscalizacaoData: t.fiscalizacao_data, recursoData: t.recurso_data,
           areaIds: taskAreasMap[Number(t.id)] || [],
           responsibleIds: taskResponsiblesMap[Number(t.id)] || [],
           categoryIds: taskCategoriesMap[Number(t.id)] || []
@@ -3309,7 +3353,7 @@ export async function startServer(isVercel = false) {
 
   app.post("/api/tasks", async (req, res) => {
     try {
-      const { title, description, startDate, endDate, status, parentId, progress, priority, category, assignedTo, notes, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId } = req.body;
+      const { title, description, startDate, endDate, status, parentId, progress, priority, category, assignedTo, notes, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, type, fiscalizacaoData, recursoData } = req.body;
       const pool = getDbPool();
       const client = await pool.connect();
       try {
@@ -3333,8 +3377,8 @@ export async function startServer(isVercel = false) {
         const reqWeight = parseInt(req.body.weight as any, 10);
         const finalWeight = isNaN(reqWeight) ? 1 : reqWeight;
         const result = await client.query(
-          `INSERT INTO pl_tasks (title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16)
+          `INSERT INTO pl_tasks (title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, type, fiscalizacao_data, recurso_data)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $17, $18, $19)
            RETURNING *`,
           [
             title || "Sem título",
@@ -3352,7 +3396,10 @@ export async function startServer(isVercel = false) {
             dependsOnTaskId ? parseInt(dependsOnTaskId) : null,
             req.body.updatedBy || "SGI Pro",
             req.body.seiProcess || null,
-            isNaN(finalWeight) ? 1.0 : finalWeight
+            isNaN(finalWeight) ? 1.0 : finalWeight,
+            type || "default",
+            fiscalizacaoData ? JSON.stringify(fiscalizacaoData) : null,
+            recursoData ? JSON.stringify(recursoData) : null
           ]
         );
         
@@ -3413,6 +3460,8 @@ export async function startServer(isVercel = false) {
             createdBy: createdTask.created_by,
             notes: createdTask.notes,
             planId: createdTask.plan_id ? Number(createdTask.plan_id) : null,
+            type: createdTask.type,
+            fiscalizacaoData: createdTask.fiscalizacao_data, recursoData: createdTask.recurso_data,
             areaIds: areaIds || [],
             responsibleIds: responsibleIds || [],
             categoryIds: categoryIds || []
@@ -3433,7 +3482,7 @@ export async function startServer(isVercel = false) {
   app.put("/api/tasks/:id", async (req, res) => {
     try {
       const taskId = parseInt(req.params.id);
-      const { title, description, startDate, endDate, status, progress, priority, category, assignedTo, notes, parentId, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, seiProcess } = req.body;
+      const { title, description, startDate, endDate, status, progress, priority, category, assignedTo, notes, parentId, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, seiProcess, type, fiscalizacaoData, recursoData } = req.body;
       const pool = getDbPool();
       const client = await pool.connect();
       try {
@@ -3478,7 +3527,7 @@ export async function startServer(isVercel = false) {
         const finalWeight = isNaN(reqWeight) ? 1 : reqWeight;
         const result = await client.query(
           `UPDATE pl_tasks 
-           SET title = $1, description = $2, start_date = $3, end_date = $4, status = $5, progress = $6, priority = $7, category = $8, assigned_to = $9, notes = $10, parent_id = $11, plan_id = $12, depends_on_task_id = $13, updated_at = NOW(), updated_by = $14, sei_process = $16, weight = $17
+           SET title = $1, description = $2, start_date = $3, end_date = $4, status = $5, progress = $6, priority = $7, category = $8, assigned_to = $9, notes = $10, parent_id = $11, plan_id = $12, depends_on_task_id = $13, updated_at = NOW(), updated_by = $14, sei_process = $16, weight = $17, type = $18, fiscalizacao_data = $19, recurso_data = $20
            WHERE id = $15
            RETURNING *`,
           [
@@ -3498,7 +3547,10 @@ export async function startServer(isVercel = false) {
             req.body.updatedBy || "SGI Pro",
             taskId,
             seiProcess || null,
-            isNaN(finalWeight) ? 1.0 : finalWeight
+            isNaN(finalWeight) ? 1.0 : finalWeight,
+            type || "default",
+            fiscalizacaoData ? JSON.stringify(fiscalizacaoData) : null,
+            recursoData ? JSON.stringify(recursoData) : null
           ]
         );
 
@@ -3571,6 +3623,8 @@ export async function startServer(isVercel = false) {
             createdBy: updatedTask.created_by,
             notes: updatedTask.notes,
             planId: updatedTask.plan_id ? Number(updatedTask.plan_id) : null,
+            type: updatedTask.type,
+            fiscalizacaoData: updatedTask.fiscalizacao_data, recursoData: updatedTask.recurso_data,
             areaIds: areaIds || [],
             responsibleIds: responsibleIds || [],
             categoryIds: categoryIds || []

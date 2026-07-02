@@ -55,10 +55,18 @@ export function RegulatoryAgendaTab({ showToast, currentUser }: RegulatoryAgenda
     try {
       // Get Agendas
       const agendasRes = await fetch("/api/agendas");
+      if (!agendasRes.ok) {
+        const text = await agendasRes.text();
+        throw new Error(`Servidor retornou status ${agendasRes.status}: ${text}`);
+      }
       const agendasJson = await agendasRes.json();
       
       // Get Tasks for relations
       const tasksRes = await fetch("/api/tasks");
+      if (!tasksRes.ok) {
+        const text = await tasksRes.text();
+        throw new Error(`Servidor retornou status ${tasksRes.status}: ${text}`);
+      }
       const tasksJson = await tasksRes.json();
 
       if (agendasJson.success) {

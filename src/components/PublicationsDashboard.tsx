@@ -110,6 +110,10 @@ export function PublicationsDashboard({ showToast }: PublicationsDashboardProps)
       setIsLoading(false);
       try {
         const res = await fetch("/api/publications");
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Servidor retornou status ${res.status}: ${text}`);
+        }
         const json = await res.json();
         if (json.success) {
           setPublications(json.data);

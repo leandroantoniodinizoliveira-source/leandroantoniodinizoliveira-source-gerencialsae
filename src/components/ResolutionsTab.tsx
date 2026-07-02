@@ -66,6 +66,10 @@ export function ResolutionsTab({ showToast, currentUser }: ResolutionsTabProps) 
     setIsLoading(true);
     try {
       const response = await fetch("/api/resolutions");
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Servidor retornou status ${response.status}: ${text}`);
+      }
       const json = await response.json();
       if (json.success) {
         setResolutions(json.data);

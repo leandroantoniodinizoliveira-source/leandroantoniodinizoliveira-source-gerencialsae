@@ -59,6 +59,10 @@ export function PublicationsTab({ showToast, currentUser }: PublicationsTabProps
     setIsLoading(true);
     try {
       const response = await fetch("/api/publications");
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Servidor retornou status ${response.status}: ${text}`);
+      }
       const json = await response.json();
       if (json.success) {
         setPublications(json.data);

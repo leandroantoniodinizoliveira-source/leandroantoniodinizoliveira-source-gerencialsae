@@ -141,6 +141,65 @@ export interface TaskLink {
   createdAt: string;
 }
 
+export interface DocumentoFiscalizacao {
+  id: string;
+  tipo: string;
+  numeroSei: string;
+  data: string;
+  objetivo: string;
+  destinatario: string;
+}
+
+export interface ConstatacaoFiscalizacao {
+  id: string;
+  codigo: string;
+  descricao: string;
+  situacao: 'Conforme' | 'Não Conforme';
+  descricaoNaoConformidade?: string;
+  prazoCorrecao?: string; // used when inside Termo
+  alertaPrazo?: boolean; // defaults to true, when false ignores prazo
+  situacaoNaoConforme?: 'Tratada Adequadamente' | 'Não Tratada'; // used when inside Termo
+}
+
+export interface TermoNotificacao {
+  id: string;
+  numeroSei: string;
+  dataEmissao: string;
+  dataResposta: string;
+  respondidoEm?: string;
+  constatacoesIds: string[]; // references ConstatacaoFiscalizacao
+}
+
+export interface AutoDeInfracao {
+  id: string;
+  numeroSei: string;
+  dataEmissao: string;
+  referencia: string;
+  caracterizacao: string;
+  infracoes: string;
+  penalidade: 'Advertência' | 'Multa' | 'Embargo de obras' | 'Interdição administrativa' | 'Caducidade da concessão' | string;
+  descricaoPenalidade: string;
+  dataLimiteRecurso: string;
+  constatacoesIds: string[]; // references ConstatacaoFiscalizacao
+}
+
+export interface FiscalizacaoData {
+  codigo: string;
+  objetivo: string;
+  regiaoAdministrativa: string;
+  latitude: string;
+  longitude: string;
+  tipo: 'Direta' | 'Indireta';
+  tipoFiscalizacao?: 'Operacional' | 'Qualidade do Atendimento' | string;
+  servico?: 'Água' | 'Esgoto' | 'Atendimento' | string;
+  programacao: 'Programada' | 'Não Programada';
+  imagens: string[];
+  documentos: DocumentoFiscalizacao[];
+  constatacoes: ConstatacaoFiscalizacao[];
+  termosNotificacao: TermoNotificacao[];
+  autosDeInfracao?: AutoDeInfracao[];
+}
+
 export interface Task {
   id: number;
   title: string;
@@ -169,6 +228,9 @@ export interface Task {
   updatedBy?: string | null;
   comments?: TaskComment[];
   links?: TaskLink[];
+  type?: 'default' | 'fiscalizacao' | 'recurso';
+  fiscalizacaoData?: FiscalizacaoData;
+  recursoData?: RecursoData;
 }
 
 export interface Plan {
@@ -216,3 +278,24 @@ export interface Responsible {
   userId?: number | null;
 }
 
+
+export interface RecursoData {
+  nomeUsuario?: string;
+  enderecoUsuario?: string;
+  regiaoAdministrativa?: string;
+  classificacaoImovel?: 'Comercial' | 'Residencial' | 'Não se aplica' | string;
+  apuracao?: string;
+  tipoManifestacao?: 'Denúncia' | 'Reclamação' | 'Solicitação' | string;
+  servico?: 'Água' | 'Esgoto' | 'Comercial' | string;
+  categoria?: string;
+  numeroSei?: string;
+  posicionamentoOuvidoria?: string;
+  posicionamentoSAE?: string;
+  posicionamentoJuridico?: string;
+  posicionamentoDiretoria?: string;
+  situacao?: 'Recebido' | 'Em Análise Técnica' | 'Tramitado para a Ouvidoria' | 'Encaminhado à Diretoria' | 'Retornado da Diretoria' | 'Finalizado' | string;
+  resultadoProcesso?: 'Atendido' | 'Atendido Parcialmente' | 'Não Atendido' | 'Acordo' | 'Desistência do Usuário' | 'Em Análise' | string;
+  complexidade?: 'Alta' | 'Média' | 'Baixa' | string;
+  observacao?: string;
+  datasEtapas?: Record<string, string>;
+}

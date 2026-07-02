@@ -79,7 +79,7 @@ export function ManagerialHub({
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <div className={`p-2 px-4 rounded-xl text-sm sm:text-lg font-black uppercase tracking-wider border ${showOnlyPublic ? "bg-emerald-50 text-emerald-800 border-emerald-150" : "bg-blue-50 text-blue-700 border-blue-150"}`}>
-              {showOnlyPublic ? "Painéis Externos (Públicos)" : "Painéis Gerenciais Compartilhados"}
+              {showOnlyPublic ? "Painéis Externos (Públicos)" : "Painéis Gerenciais"}
             </div>
           </div>
         </div>
@@ -88,7 +88,7 @@ export function ManagerialHub({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Painel de Atividades Card - PRIVATE */}
           {!showOnlyPublic && (
-            <RequirePermission moduleId="planning" action="view">
+            <RequirePermission moduleId="planning_dashboard" action="view">
             <motion.div 
               whileHover={{ y: -2 }}
               onClick={onOpenPlanning}
