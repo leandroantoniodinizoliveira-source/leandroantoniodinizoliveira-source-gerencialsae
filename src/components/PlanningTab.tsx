@@ -753,7 +753,7 @@ export function PlanningTab({
 
   // Modal/Form State for adding/editing tasks
   const [timelineTaskId, setTimelineTaskId] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"tree" | "table" | "status" | "category" | "area" | "responsible" | "board" | "gantt" | "calendar">("board");
+  const [viewMode, setViewMode] = useState<"tree" | "table" | "status" | "category" | "area" | "responsible" | "board" | "gantt" | "calendar" | "recurso">("board");
   const [calendarScale, setCalendarScale] = useState<"mes" | "trimestre" | "ano">("mes");
   const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
   const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
@@ -1515,7 +1515,7 @@ export function PlanningTab({
     }
 
     // Check task type
-    if (taskTypeFilter !== "all") {
+    if (taskTypeFilter !== "all" && viewMode !== "recurso") {
       const isType = t.type || "default";
       if (isType !== taskTypeFilter) return false;
     }
@@ -1791,6 +1791,18 @@ export function PlanningTab({
         const recents = ["hoje", "ontem", "essa_semana", "esse_mes", "mais_antigas"];
         recents.forEach(rec => {
           updated[`recent-${rec}`] = expand;
+        });
+      } else if (viewMode === "recurso") {
+        const RECURSO_STAGES = [
+          "Recebido",
+          "Em Análise Técnica",
+          "Tramitado para a Ouvidoria",
+          "Encaminhado à Diretoria",
+          "Retornado da Diretoria",
+          "Finalizado"
+        ];
+        RECURSO_STAGES.forEach(stage => {
+          updated[`recurso-${stage}`] = expand;
         });
       }
       return updated;
@@ -3176,7 +3188,15 @@ export function PlanningTab({
       planId: defaultPlanId,
       areaIds: defaultAreaIds,
       responsibleIds: defaultResponsibleIds,
-      type: "default"
+      type: (viewMode === "recurso" || taskTypeFilter === "recurso") ? "recurso" : "default",
+      recursoData: (viewMode === "recurso" || taskTypeFilter === "recurso") ? {
+        classificacaoImovel: 'Residencial',
+        tipoManifestacao: 'Reclamação',
+        servico: 'Água',
+        situacao: 'Recebido',
+        resultadoProcesso: 'Em Análise',
+        complexidade: 'Média'
+      } : undefined
     });
     setTaskFormTab("form");
     setIsFormOpen(true);
@@ -4176,6 +4196,7 @@ export function PlanningTab({
                   <option value="all">Todos os Tipos</option>
                   <option value="default">Padrão</option>
                   <option value="fiscalizacao">Fiscalização</option>
+                  <option value="recurso">Recurso de Revisão</option>
                 </select>
               </div>
             </div>
@@ -7309,6 +7330,7 @@ export function PlanningTab({
                   <option value="all">Todos os Tipos</option>
                   <option value="default">PADRÃO</option>
                   <option value="fiscalizacao">FISCALIZAÇÃO</option>
+                  <option value="recurso">RECURSO DE REVISÃO</option>
                 </select>
               </div>
             </div>
@@ -7440,6 +7462,12 @@ export function PlanningTab({
                   className={`flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap shadow-sm ${viewMode === "calendar" && timelineTaskId === null ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"}`}
                 >
                   <Calendar size={16} /> Calendário
+                </button>
+                <button
+                  onClick={() => { setViewMode("recurso"); setTimelineTaskId(null); }}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap shadow-sm ${viewMode === "recurso" && timelineTaskId === null ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"}`}
+                >
+                  <Scale size={16} /> Recursos de Revisão
                 </button>
                 {timelineTaskId !== null && (
                   <button
@@ -7588,11 +7616,11 @@ export function PlanningTab({
                 </div>
               </div>
 
-              {["status", "category", "area", "responsible", "tree"].includes(viewMode) && (
+              {["status", "category", "area", "responsible", "tree", "recurso"].includes(viewMode) && (
                 <div className="flex flex-col sm:flex-row items-center gap-3 justify-between bg-slate-50 border border-slate-200/80 rounded-2xl p-3 px-4 shadow-xs mt-2 select-none">
                   <div className="flex items-center gap-2">
                     <Layers size={15} className="text-indigo-500" />
-                    <span className="text-xs font-extrabold text-slate-700 uppercase tracking-wider">{viewMode === "tree" ? "Painel de Tarefas Mais Recentes (CRIADAS OU EDITADAS)" : `Painel de Agrupamento (${viewMode === "status" ? "Status" : viewMode === "category" ? "Categorias" : viewMode === "area" ? "Áreas" : "Responsáveis"})`}</span>
+                    <span className="text-xs font-extrabold text-slate-700 uppercase tracking-wider">{viewMode === "tree" ? "Painel de Tarefas Mais Recentes (CRIADAS OU EDITADAS)" : `Painel de Agrupamento (${viewMode === "status" ? "Status" : viewMode === "category" ? "Categorias" : viewMode === "area" ? "Áreas" : viewMode === "recurso" ? "Etapas do Recurso" : "Responsáveis"})`}</span>
                   </div>
                   <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                     <button
@@ -7851,6 +7879,16 @@ export function PlanningTab({
                                    <td className="px-4 py-3 border-r border-slate-50 min-w-[500px] w-[500px] whitespace-normal">
                                      <span className="font-bold text-slate-800 hover:text-indigo-600 block cursor-pointer transition-colors" onClick={() => handleEditTask(task)}>
                                        {getTaskDisplayName(task)} <span className="text-slate-400 font-normal">({taskChildrenCount})</span>
+                                       {task.type === "recurso" && (
+                                         <span 
+                                           className="inline-flex text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 items-center gap-1 shadow-xs cursor-pointer ml-2"
+                                           title={`Etapa do Processo: ${task.recursoData?.situacao || "Recebido"}`}
+                                           onClick={() => handleEditTask(task)}
+                                         >
+                                           <Scale size={10} className="stroke-[2.5]" />
+                                           Etapa: {task.recursoData?.situacao || "Recebido"}
+                                         </span>
+                                       )}
                                      </span>
                                      {task.parentId && taskById[task.parentId] && (
                                        <span className="text-[9px] text-indigo-500 font-bold uppercase mt-0.5 block truncate max-w-xs" title={`Subtarefa de: ${taskById[task.parentId].title}`}>
@@ -8082,6 +8120,70 @@ export function PlanningTab({
                    </div>
                  );
               })()}
+              {viewMode === "recurso" && (() => {
+                  const RECURSO_STAGES = [
+                    "Recebido",
+                    "Em Análise Técnica",
+                    "Tramitado para a Ouvidoria",
+                    "Encaminhado à Diretoria",
+                    "Retornado da Diretoria",
+                    "Finalizado"
+                  ];
+                  const totalRecursos = rootTasks.filter(t => t.type === "recurso").length;
+                  
+                  if (totalRecursos === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-16 px-4 border border-dashed border-slate-300 rounded-2xl bg-slate-50/50 text-center gap-4 mt-2">
+                        <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full">
+                          <Scale size={28} />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">Nenhum Recurso de Revisão Cadastrado</h4>
+                          <p className="text-xs text-slate-500 max-w-sm">
+                            Atualmente não há nenhuma tarefa classificada como Recurso de Revisão. Crie uma nova tarefa para gerenciar as etapas do processo.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAddNewTask(null)}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-2 rounded-xl transition shadow-sm flex items-center gap-2"
+                        >
+                          Criar Recurso de Revisão
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-4 mt-2">
+                      {RECURSO_STAGES.map(stage => {
+                        const groupRootTasks = rootTasks.filter(t => t.type === "recurso" && (t.recursoData?.situacao || "Recebido") === stage && childMatchesOrIsPath(t.id));
+                        if (groupRootTasks.length === 0) return null;
+                        
+                        return (
+                          <div key={stage} className="overflow-hidden rounded-xl border border-slate-200/60 flex flex-col bg-white transition-all duration-200 shadow-sm">
+                             <div 
+                               onClick={() => toggleGroupContainer("recurso", stage)}
+                               className="bg-slate-50 hover:bg-slate-100/70 border-b border-slate-200/60 px-4 py-3 flex items-center justify-between cursor-pointer select-none transition-colors"
+                             >
+                               <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                                  {expandedGroupContainers[`recurso-${stage}`] !== false ? <ChevronDown size={14} className="text-slate-400 stroke-[2.5]" /> : <ChevronRight size={14} className="text-slate-400 stroke-[2.5]" />}
+                                  <Scale size={14} className="text-[#1A3E8A]" />
+                                  {stage}
+                               </h3>
+                               <span className="bg-white border border-slate-200 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">{groupRootTasks.length} recursos</span>
+                             </div>
+                             {expandedGroupContainers[`recurso-${stage}`] !== false && (
+                               <div>
+                                 {groupRootTasks.filter(t => childMatchesOrIsPath(t.id)).map(t => renderTaskNode(t, 0, false))}
+                               </div>
+                             )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  );
+               })()}
               {viewMode === "board" && (() => {
                   const visibleTasks = enhancedTasks.filter(t => matchesFilters(t));
                   const groups: Record<string, Task[]> = {};
@@ -8293,6 +8395,16 @@ export function PlanningTab({
                                             
                                             {/* Status / Priority / Situation Badges */}
                                             <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+                                              {task.type === "recurso" && (
+                                                <span 
+                                                  className="text-[8.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm border shadow-xs flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-200 cursor-pointer"
+                                                  title={`Etapa do Processo: ${task.recursoData?.situacao || "Recebido"}`}
+                                                  onClick={() => handleEditTask(task)}
+                                                >
+                                                  <Scale size={9} className="stroke-[2.5]" />
+                                                  Etapa: {task.recursoData?.situacao || "Recebido"}
+                                                </span>
+                                              )}
                                               {task.priority && (
                                                 <span className={cn(
                                                   "text-[8.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm border shadow-xs flex items-center gap-1",
@@ -8900,6 +9012,16 @@ export function PlanningTab({
                                         <span className={`text-xs font-bold text-slate-850 line-clamp-1 cursor-pointer hover:text-indigo-600 transition-colors ${depth === 0 ? "text-sm" : ""}`} onClick={() => handleEditTask(t)}>
                                           {getTaskDisplayName(t)}
                                         </span>
+                                        {t.type === "recurso" && (
+                                          <span 
+                                            className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1 shadow-xs cursor-pointer shrink-0"
+                                            title={`Etapa do Processo: ${t.recursoData?.situacao || "Recebido"}`}
+                                            onClick={() => handleEditTask(t)}
+                                          >
+                                            <Scale size={10} className="stroke-[2.5]" />
+                                            Etapa: {t.recursoData?.situacao || "Recebido"}
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] text-slate-400 font-bold uppercase tracking-wider" style={{ paddingLeft: hasSubs || depth > 0 ? '22px' : '0' }}>
                                         {t.startDate ? <span>Início: {t.startDate.split("T")[0].split("-").reverse().join("/")}</span> : null}
@@ -9206,9 +9328,11 @@ export function PlanningTab({
                                             "px-1.5 py-0.5 rounded text-[9px] font-black uppercase text-white truncate transition-all flex items-center gap-1 border border-black/5 hover:brightness-95",
                                             colorClass
                                           )}
-                                          title={getTaskDisplayName(t)}
+                                          title={t.type === "recurso" ? `${getTaskDisplayName(t)} (Recurso - Etapa: ${t.recursoData?.situacao || "Recebido"})` : getTaskDisplayName(t)}
                                         >
-                                          <span className="truncate">{getTaskDisplayName(t)}</span>
+                                          <span className="truncate">
+                                            {t.type === "recurso" ? `⚖️ [${t.recursoData?.situacao || "Recebido"}] ${getTaskDisplayName(t).replace(/^\[.*?\]\s*/, '')}` : getTaskDisplayName(t)}
+                                          </span>
                                         </div>
                                       );
                                     })}
@@ -9384,6 +9508,14 @@ export function PlanningTab({
                                   <div className="flex items-start justify-between gap-2">
                                     <span className="text-[8px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
                                       ID: {t.id}
+                                    </span>
+                                    {t.type === "recurso" && (
+                                      <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200 flex items-center gap-1 shadow-xs cursor-pointer" onClick={(e) => { e.stopPropagation(); handleEditTask(t); }}>
+                                        <Scale size={8} className="stroke-[2.5]" />
+                                        Etapa: {t.recursoData?.situacao || "Recebido"}
+                                      </span>
+                                    )}
+                                    <span className="hidden">
                                     </span>
                                     <span className={cn(
                                       "text-[8px] font-black uppercase py-0.5 px-1.5 rounded border tracking-wider",
@@ -11542,6 +11674,17 @@ export function PlanningTab({
                     {getTaskDisplayName(task)}
                   </span>
 
+                  {task.type === "recurso" && (
+                    <span 
+                      className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1 shadow-xs cursor-pointer"
+                      title={`Etapa do Processo: ${task.recursoData?.situacao || "Recebido"}`}
+                      onClick={() => handleEditTask(task)}
+                    >
+                      <Scale size={10} className="stroke-[2.5]" />
+                      Etapa: {task.recursoData?.situacao || "Recebido"}
+                    </span>
+                  )}
+
                   {hasSubs && (
                     <span 
                       className="text-xs font-black px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-lg flex items-center gap-1.5 hover:bg-indigo-100 transition-all cursor-pointer shadow-sm"
@@ -11705,6 +11848,87 @@ export function PlanningTab({
                     })}
                   </div>
                 )}
+
+                {(() => {
+                  if (task.type !== 'fiscalizacao') return null;
+                  const fData = task.fiscalizacaoData;
+                  const totalConstatacoes = fData?.constatacoes?.length || 0;
+                  const totalTermos = fData?.termosNotificacao?.length || 0;
+                  const totalAutos = fData?.autosDeInfracao?.length || 0;
+
+                  const todayStr = new Date().toISOString().split('T')[0];
+
+                  const hasOverdueConstatacao = (fData?.constatacoes || []).some(c => {
+                    if (c.alertaPrazo === false) return false;
+                    if (c.situacao !== 'Não Conforme') return false;
+                    const tratamento = c.situacaoNaoConforme || 'Não Tratada';
+                    if (tratamento === 'Tratada Adequadamente') return false;
+                    return c.prazoCorrecao && c.prazoCorrecao < todayStr;
+                  });
+
+                  const hasSoonOverdueConstatacao = (fData?.constatacoes || []).some(c => {
+                    if (c.alertaPrazo === false) return false;
+                    if (c.situacao !== 'Não Conforme') return false;
+                    const tratamento = c.situacaoNaoConforme || 'Não Tratada';
+                    if (tratamento === 'Tratada Adequadamente') return false;
+                    if (!c.prazoCorrecao) return false;
+                    if (c.prazoCorrecao < todayStr) return false;
+                    
+                    const today = new Date(todayStr);
+                    const prazo = new Date(c.prazoCorrecao);
+                    const diffTime = prazo.getTime() - today.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    return diffDays <= 15;
+                  });
+
+                  const hasOverdueTermo = (fData?.termosNotificacao || []).some(termo => {
+                    return !termo.respondidoEm && termo.dataResposta && termo.dataResposta < todayStr;
+                  });
+
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 mt-1 select-none">
+                      {/* Badge Constatacoes */}
+                      <span 
+                        className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-all shadow-sm ${
+                          hasOverdueConstatacao 
+                            ? "bg-rose-500 text-white border-rose-600 animate-pulse font-extrabold" 
+                            : hasSoonOverdueConstatacao 
+                            ? "bg-amber-500 text-white border-amber-600 font-extrabold" 
+                            : "bg-sky-50 text-sky-800 border-sky-200"
+                        }`}
+                        title={hasOverdueConstatacao ? "Constatações com PRAZO VENCIDO!" : hasSoonOverdueConstatacao ? "Constatações prestes a vencer (≤ 15 dias)" : "Constatações cadastradas"}
+                      >
+                        <FileText size={10} />
+                        Constatações: {totalConstatacoes}
+                        {hasOverdueConstatacao && " (VENCIDA)"}
+                        {!hasOverdueConstatacao && hasSoonOverdueConstatacao && " (ALERTA)"}
+                      </span>
+
+                      {/* Badge Termos de Notificação */}
+                      <span 
+                        className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-all shadow-sm ${
+                          hasOverdueTermo 
+                            ? "bg-rose-500 text-white border-rose-600 animate-pulse font-extrabold" 
+                            : "bg-indigo-50 text-indigo-800 border-indigo-200"
+                        }`}
+                        title={hasOverdueTermo ? "Termos de Notificação com PRAZO VENCIDO!" : "Termos de Notificação cadastrados"}
+                      >
+                        <AlertCircle size={10} />
+                        Termos: {totalTermos}
+                        {hasOverdueTermo && " (VENCIDO)"}
+                      </span>
+
+                      {/* Badge Autos de Infracao */}
+                      <span 
+                        className="text-[9px] font-black uppercase px-2.5 py-1 rounded-md border flex items-center gap-1.5 bg-rose-50 text-rose-800 border-rose-200 transition-all shadow-sm"
+                        title="Autos de Infração cadastrados"
+                      >
+                        <AlertTriangle size={10} />
+                        Autos: {totalAutos}
+                      </span>
+                    </div>
+                  );
+                })()}
                 </div>
               </div>
             </div>
