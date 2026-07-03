@@ -129,12 +129,20 @@ async function rollUpTask(client: any, parentId: number | null) {
     status = "Em andamento";
   }
 
+  const parentDatesRes = await client.query("SELECT end_date FROM pl_tasks WHERE id = $1", [parentId]);
+  const oldParentEndDate = parentDatesRes.rows.length > 0 && parentDatesRes.rows[0].end_date ? new Date(parentDatesRes.rows[0].end_date).getTime() : 0;
+
   await client.query(
     `UPDATE pl_tasks 
      SET start_date = $1, end_date = $2, progress = $3, status = $4
      WHERE id = $5`,
     [minStart, maxEnd, avgProgress, status, parentId]
   );
+
+  const newParentEndDate = maxEnd ? new Date(maxEnd).getTime() : 0;
+  if (oldParentEndDate !== newParentEndDate && maxEnd) {
+      await cascadeDependentTaskDates(client, parentId, new Date(maxEnd));
+  }
 
   const parentRes = await client.query("SELECT parent_id FROM pl_tasks WHERE id = $1", [parentId]);
   if (parentRes.rows.length > 0 && parentRes.rows[0].parent_id) {
@@ -165,6 +173,53 @@ async function cascadeAreasAndCategories(client: any, parentTaskId: number, area
 
     // recursive call
     await cascadeAreasAndCategories(client, childId, areaIds, categoryIds);
+  }
+}
+
+async function shiftTaskAndChildrenDates(client: any, taskId: number, offsetMs: number) {
+  if (offsetMs === 0) return;
+  
+  await client.query(
+    "UPDATE pl_tasks SET start_date = start_date + interval '1 millisecond' * $1, end_date = end_date + interval '1 millisecond' * $1 WHERE id = $2 AND start_date IS NOT NULL AND end_date IS NOT NULL",
+    [offsetMs, taskId]
+  );
+
+  const childrenRes = await client.query("SELECT id FROM pl_tasks WHERE parent_id = $1", [taskId]);
+  for (const row of childrenRes.rows) {
+    await shiftTaskAndChildrenDates(client, row.id, offsetMs);
+    const childDates = await client.query("SELECT end_date FROM pl_tasks WHERE id = $1", [row.id]);
+    if (childDates.rows.length > 0 && childDates.rows[0].end_date) {
+      await cascadeDependentTaskDates(client, row.id, new Date(childDates.rows[0].end_date));
+    }
+  }
+}
+
+async function cascadeDependentTaskDates(client: any, parentTaskId: number, newParentEndDate: Date) {
+  if (!newParentEndDate || isNaN(newParentEndDate.getTime())) return;
+
+  const targetStartDateMs = newParentEndDate.getTime() + 86400000; // + 1 day
+  const targetStartDate = new Date(targetStartDateMs);
+
+  const dependentRes = await client.query("SELECT id, start_date, end_date FROM pl_tasks WHERE depends_on_task_id = $1", [parentTaskId]);
+  for (const row of dependentRes.rows) {
+    const depId = row.id;
+    const oldStart = row.start_date ? new Date(row.start_date) : null;
+    let newEnd = row.end_date ? new Date(row.end_date) : null;
+
+    if (oldStart) {
+      const offsetMs = targetStartDateMs - oldStart.getTime();
+      if (offsetMs !== 0) {
+        await shiftTaskAndChildrenDates(client, depId, offsetMs);
+        if (newEnd) newEnd = new Date(newEnd.getTime() + offsetMs);
+      }
+    } else {
+       await client.query("UPDATE pl_tasks SET start_date = $1, end_date = $1 WHERE id = $2", [targetStartDate, depId]);
+       newEnd = targetStartDate;
+    }
+
+    if (newEnd) {
+      await cascadeDependentTaskDates(client, depId, newEnd);
+    }
   }
 }
 
@@ -525,7 +580,7 @@ async function runStartupMigration() {
       await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'default';`);
       await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS fiscalizacao_data JSONB;`);
       await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS recurso_data JSONB;`);
-      await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS recurso_data JSONB;`);
+      await client.query(`ALTER TABLE pl_tasks ADD COLUMN IF NOT EXISTS checklist JSONB;`);
 
       // Ensure pl_task_models and pl_model_tasks tables exist for task templates
       await client.query(`
@@ -1324,6 +1379,7 @@ export async function startServer(isVercel = false) {
             assignedTo: t.assigned_to,
             createdBy: t.created_by,
             notes: t.notes,
+            checklist: t.checklist,
             planId: t.plan_id ? Number(t.plan_id) : null,
             dependsOnTaskId: t.depends_on_task_id ? Number(t.depends_on_task_id) : null,
             updatedAt: t.updated_at,
@@ -3041,11 +3097,11 @@ export async function startServer(isVercel = false) {
       try {
         const result = await client.query(`
           WITH RECURSIVE task_tree AS (
-            SELECT id, title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, created_by, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, type, fiscalizacao_data, recurso_data, 1 AS depth
+            SELECT id, title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, created_by, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, type, fiscalizacao_data, recurso_data, checklist, 1 AS depth
             FROM pl_tasks
             WHERE parent_id IS NULL
             UNION ALL
-            SELECT t.id, t.title, t.description, t.start_date, t.end_date, t.status, t.parent_id, t.progress, t.priority, t.category, t.assigned_to, t.created_by, t.notes, t.plan_id, t.depends_on_task_id, t.updated_at, t.updated_by, t.sei_process, t.weight, t.type, t.fiscalizacao_data, t.recurso_data, tt.depth + 1
+            SELECT t.id, t.title, t.description, t.start_date, t.end_date, t.status, t.parent_id, t.progress, t.priority, t.category, t.assigned_to, t.created_by, t.notes, t.plan_id, t.depends_on_task_id, t.updated_at, t.updated_by, t.sei_process, t.weight, t.type, t.fiscalizacao_data, t.recurso_data, t.checklist, tt.depth + 1
             FROM pl_tasks t
             INNER JOIN task_tree tt ON t.parent_id = tt.id
           )
@@ -3119,6 +3175,7 @@ export async function startServer(isVercel = false) {
           assignedTo: t.assigned_to,
           createdBy: t.created_by,
           notes: t.notes,
+          checklist: t.checklist,
           planId: t.plan_id ? Number(t.plan_id) : null,
           dependsOnTaskId: t.depends_on_task_id ? Number(t.depends_on_task_id) : null,
           updatedAt: t.updated_at,
@@ -3353,7 +3410,7 @@ export async function startServer(isVercel = false) {
 
   app.post("/api/tasks", async (req, res) => {
     try {
-      const { title, description, startDate, endDate, status, parentId, progress, priority, category, assignedTo, notes, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, type, fiscalizacaoData, recursoData } = req.body;
+      const { title, description, startDate, endDate, status, parentId, progress, priority, category, assignedTo, notes, checklist, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, type, fiscalizacaoData, recursoData } = req.body;
       const pool = getDbPool();
       const client = await pool.connect();
       try {
@@ -3377,8 +3434,8 @@ export async function startServer(isVercel = false) {
         const reqWeight = parseInt(req.body.weight as any, 10);
         const finalWeight = isNaN(reqWeight) ? 1 : reqWeight;
         const result = await client.query(
-          `INSERT INTO pl_tasks (title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, type, fiscalizacao_data, recurso_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $17, $18, $19)
+          `INSERT INTO pl_tasks (title, description, start_date, end_date, status, parent_id, progress, priority, category, assigned_to, notes, plan_id, depends_on_task_id, updated_at, updated_by, sei_process, weight, type, fiscalizacao_data, recurso_data, checklist)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $17, $18, $19, $20)
            RETURNING *`,
           [
             title || "Sem título",
@@ -3399,7 +3456,8 @@ export async function startServer(isVercel = false) {
             isNaN(finalWeight) ? 1.0 : finalWeight,
             type || "default",
             fiscalizacaoData ? JSON.stringify(fiscalizacaoData) : null,
-            recursoData ? JSON.stringify(recursoData) : null
+            recursoData ? JSON.stringify(recursoData) : null,
+            checklist ? JSON.stringify(checklist) : null
           ]
         );
         
@@ -3435,6 +3493,34 @@ export async function startServer(isVercel = false) {
             finalAssignedTo = respNamesRes.rows.map(r => r.name).join(", ");
           }
           await client.query("UPDATE pl_tasks SET assigned_to = $1 WHERE id = $2", [finalAssignedTo, createdTaskId]);
+        }
+        
+        if (dependsOnTaskId) {
+            const existingDepsRes = await client.query("SELECT id FROM pl_tasks WHERE depends_on_task_id = $1 AND id != $2", [dependsOnTaskId, createdTaskId]);
+
+            const depRes = await client.query("SELECT end_date FROM pl_tasks WHERE id = $1", [dependsOnTaskId]);
+            if (depRes.rows.length > 0 && depRes.rows[0].end_date) {
+               const parentEnd = new Date(depRes.rows[0].end_date);
+               const oldStart = createdTask.start_date ? new Date(createdTask.start_date) : null;
+               const oldEnd = createdTask.end_date ? new Date(createdTask.end_date) : null;
+               
+               let nStart = new Date(parentEnd.getTime() + 86400000);
+               let nEnd = new Date(parentEnd.getTime() + 86400000);
+               if (oldStart && oldEnd) {
+                   const diffMs = oldEnd.getTime() - oldStart.getTime();
+                   nEnd = new Date(nStart.getTime() + diffMs);
+               }
+               await client.query("UPDATE pl_tasks SET start_date = $1, end_date = $2 WHERE id = $3", [nStart, nEnd, createdTaskId]);
+               createdTask.start_date = nStart;
+               createdTask.end_date = nEnd;
+            }
+
+            if (existingDepsRes.rows.length > 0) {
+                await client.query("UPDATE pl_tasks SET depends_on_task_id = $1 WHERE depends_on_task_id = $2 AND id != $1", [createdTaskId, dependsOnTaskId]);
+                if (createdTask.end_date) {
+                    await cascadeDependentTaskDates(client, createdTaskId, new Date(createdTask.end_date));
+                }
+            }
         }
         
         if (createdTask.parent_id) {
@@ -3482,7 +3568,7 @@ export async function startServer(isVercel = false) {
   app.put("/api/tasks/:id", async (req, res) => {
     try {
       const taskId = parseInt(req.params.id);
-      const { title, description, startDate, endDate, status, progress, priority, category, assignedTo, notes, parentId, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, seiProcess, type, fiscalizacaoData, recursoData } = req.body;
+      const { title, description, startDate, endDate, status, progress, priority, category, assignedTo, notes, checklist, parentId, planId, areaIds, responsibleIds, categoryIds, dependsOnTaskId, seiProcess, type, fiscalizacaoData, recursoData } = req.body;
       const pool = getDbPool();
       const client = await pool.connect();
       try {
@@ -3527,7 +3613,7 @@ export async function startServer(isVercel = false) {
         const finalWeight = isNaN(reqWeight) ? 1 : reqWeight;
         const result = await client.query(
           `UPDATE pl_tasks 
-           SET title = $1, description = $2, start_date = $3, end_date = $4, status = $5, progress = $6, priority = $7, category = $8, assigned_to = $9, notes = $10, parent_id = $11, plan_id = $12, depends_on_task_id = $13, updated_at = NOW(), updated_by = $14, sei_process = $16, weight = $17, type = $18, fiscalizacao_data = $19, recurso_data = $20
+           SET title = $1, description = $2, start_date = $3, end_date = $4, status = $5, progress = $6, priority = $7, category = $8, assigned_to = $9, notes = $10, parent_id = $11, plan_id = $12, depends_on_task_id = $13, updated_at = NOW(), updated_by = $14, sei_process = $16, weight = $17, type = $18, fiscalizacao_data = $19, recurso_data = $20, checklist = $21
            WHERE id = $15
            RETURNING *`,
           [
@@ -3550,7 +3636,8 @@ export async function startServer(isVercel = false) {
             isNaN(finalWeight) ? 1.0 : finalWeight,
             type || "default",
             fiscalizacaoData ? JSON.stringify(fiscalizacaoData) : null,
-            recursoData ? JSON.stringify(recursoData) : null
+            recursoData ? JSON.stringify(recursoData) : null,
+            checklist ? JSON.stringify(checklist) : null
           ]
         );
 
@@ -3592,6 +3679,36 @@ export async function startServer(isVercel = false) {
 
         // Trigger cascade to override children
         await cascadeAreasAndCategories(client, taskId, finalAreaIds, finalCategoryIds);
+
+        // Se a tarefa mudou sua dependência, atualiza as datas DESSA tarefa para seguir a nova dependência
+        const oldDependsOn = currentTaskRes.rows[0].depends_on_task_id;
+        const newDependsOn = updatedTask.depends_on_task_id;
+        let finalUpdatedEndDate = updatedTask.end_date;
+
+        if (newDependsOn && oldDependsOn !== newDependsOn) {
+            const depRes = await client.query("SELECT end_date FROM pl_tasks WHERE id = $1", [newDependsOn]);
+            if (depRes.rows.length > 0 && depRes.rows[0].end_date) {
+               const parentEnd = new Date(depRes.rows[0].end_date);
+               const oldStart = currentTaskRes.rows[0].start_date ? new Date(currentTaskRes.rows[0].start_date) : null;
+               const oldEnd = currentTaskRes.rows[0].end_date ? new Date(currentTaskRes.rows[0].end_date) : null;
+               
+               let nStart = new Date(parentEnd.getTime() + 86400000);
+               let nEnd = new Date(parentEnd.getTime() + 86400000);
+               if (oldStart && oldEnd) {
+                   const diffMs = oldEnd.getTime() - oldStart.getTime();
+                   nEnd = new Date(nStart.getTime() + diffMs);
+               }
+               await client.query("UPDATE pl_tasks SET start_date = $1, end_date = $2 WHERE id = $3", [nStart, nEnd, taskId]);
+               finalUpdatedEndDate = nEnd;
+            }
+        }
+
+        // Reorganizar datas de tarefas dependentes caso a data de fim tenha mudado
+        const oldEndDateMs = currentTaskRes.rows[0].end_date ? new Date(currentTaskRes.rows[0].end_date).getTime() : 0;
+        const newEndDateMs = finalUpdatedEndDate ? new Date(finalUpdatedEndDate).getTime() : 0;
+        if (oldEndDateMs !== newEndDateMs && finalUpdatedEndDate) {
+          await cascadeDependentTaskDates(client, taskId, new Date(finalUpdatedEndDate));
+        }
 
         if (hasChildren) {
           await rollUpTask(client, taskId);
@@ -3650,12 +3767,26 @@ export async function startServer(isVercel = false) {
       try {
         await client.query("BEGIN");
         
-        const taskRes = await client.query("SELECT parent_id FROM pl_tasks WHERE id = $1", [taskId]);
+        const taskRes = await client.query("SELECT parent_id, depends_on_task_id FROM pl_tasks WHERE id = $1", [taskId]);
         if (taskRes.rows.length === 0) {
           await client.query("ROLLBACK");
           return res.status(404).json({ success: false, error: "Tarefa não encontrada." });
         }
         const parentId = taskRes.rows[0].parent_id;
+        const dependsOnTaskId = taskRes.rows[0].depends_on_task_id;
+
+        // Bridge dependencies: Se a tarefa B a ser deletada tinha uma dependência A,
+        // as tarefas C que dependiam de B passarão a depender de A.
+        const depsRes = await client.query("SELECT id FROM pl_tasks WHERE depends_on_task_id = $1", [taskId]);
+        if (depsRes.rows.length > 0) {
+          if (dependsOnTaskId) {
+            await client.query("UPDATE pl_tasks SET depends_on_task_id = $1 WHERE depends_on_task_id = $2", [dependsOnTaskId, taskId]);
+            const aRes = await client.query("SELECT end_date FROM pl_tasks WHERE id = $1", [dependsOnTaskId]);
+            if (aRes.rows.length > 0 && aRes.rows[0].end_date) {
+              await cascadeDependentTaskDates(client, dependsOnTaskId, new Date(aRes.rows[0].end_date));
+            }
+          }
+        }
 
         await client.query("DELETE FROM pl_tasks WHERE id = $1", [taskId]);
 

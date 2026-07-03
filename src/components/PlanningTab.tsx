@@ -54,7 +54,8 @@ import {
   CalendarDays,
   Percent,
   Scale,
-  ListTree
+  ListTree,
+  GripVertical
 } from "lucide-react";
 import { FiscalizacaoEditor } from './FiscalizacaoEditor';
 import { RecursoEditor } from './RecursoEditor';
@@ -11088,13 +11089,102 @@ export function PlanningTab({
                   <div className="space-y-1">
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider font-semibold flex items-center gap-2"><BookOpen size={14}/> Notas técnicas / Justificativas</label>
                     <textarea
-                      rows={9}
+                      rows={5}
                       value={editingTask.notes || ""}
                       onChange={(e) => setEditingTask(prev => ({ ...prev, notes: e.target.value, description: e.target.value }))}
                       placeholder="Justificativa técnica, observações sobre o andamento e fontes dos dados..."
                       className="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-700 focus:border-adasa-mid outline-none transition-all placeholder:text-slate-400"
                     ></textarea>
                   </div>
+                  
+                  <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <label className="block text-[11px] font-black text-slate-600 uppercase tracking-wider font-semibold flex items-center gap-2">
+                      <ListTodo size={14} className="text-slate-400"/> 
+                      Lista de verificação ({(editingTask.checklist || []).filter(c => c.completed).length} de {(editingTask.checklist || []).length} itens concluídos)
+                    </label>
+                    
+                    <div className="space-y-2">
+                      {(editingTask.checklist || []).map((item, index) => (
+                        <div 
+                          key={item.id} 
+                          className="flex items-center gap-3 group"
+                          draggable
+                          onDragStart={(e) => e.dataTransfer.setData("text/plain", index.toString())}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const draggedIndex = parseInt(e.dataTransfer.getData("text/plain"));
+                            if (isNaN(draggedIndex) || draggedIndex === index) return;
+                            const newChecklist = [...(editingTask.checklist || [])];
+                            const [draggedItem] = newChecklist.splice(draggedIndex, 1);
+                            newChecklist.splice(index, 0, draggedItem);
+                            setEditingTask(prev => ({ ...prev, checklist: newChecklist }));
+                          }}
+                        >
+                          <button 
+                            type="button"
+                            className="text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+                            title="Arraste para reordenar"
+                          >
+                            <GripVertical size={14} />
+                          </button>
+                          
+                          <span className="text-[10px] font-bold text-slate-400 w-4 text-right select-none">{index + 1}.</span>
+                          
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newChecklist = [...(editingTask.checklist || [])];
+                              newChecklist[index] = { ...item, completed: !item.completed };
+                              setEditingTask(prev => ({ ...prev, checklist: newChecklist }));
+                            }}
+                            className={item.completed ? "text-indigo-500" : "text-slate-300 hover:text-indigo-400"}
+                          >
+                            {item.completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                          </button>
+
+                          <input
+                            type="text"
+                            value={item.text}
+                            onChange={(e) => {
+                              const newChecklist = [...(editingTask.checklist || [])];
+                              newChecklist[index] = { ...item, text: e.target.value };
+                              setEditingTask(prev => ({ ...prev, checklist: newChecklist }));
+                            }}
+                            className={`flex-1 bg-transparent border-none outline-none text-xs ${item.completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}
+                            placeholder="Descrição do item..."
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newChecklist = [...(editingTask.checklist || [])];
+                              newChecklist.splice(index, 1);
+                              setEditingTask(prev => ({ ...prev, checklist: newChecklist }));
+                            }}
+                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Remover item"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                      
+                      <div className="flex items-center gap-3 pl-8">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newItem = { id: Date.now().toString() + Math.random().toString(36).substring(7), text: "", completed: false };
+                            setEditingTask(prev => ({ ...prev, checklist: [...(prev.checklist || []), newItem] }));
+                          }}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-indigo-500 transition-colors"
+                        >
+                          <Plus size={14} /> Adicionar um item
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
                     <button
                       type="button"
@@ -11322,6 +11412,13 @@ export function PlanningTab({
                     >
                       Fechar
                     </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleFormSubmit(e as any)}
+                      className="px-5 py-2 font-bold text-xs text-white bg-adasa-mid hover:bg-adasa-dark rounded-xl transition-colors shadow-sm"
+                    >
+                      {formMode === "create" ? "Inserir Atividade" : "Gravar Alterações"}
+                    </button>
                   </div>
                 </div>
               )}
@@ -11338,6 +11435,13 @@ export function PlanningTab({
                       className="px-5 py-2 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
                     >
                       Fechar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleFormSubmit(e as any)}
+                      className="px-5 py-2 font-bold text-xs text-white bg-adasa-mid hover:bg-adasa-dark rounded-xl transition-colors shadow-sm"
+                    >
+                      {formMode === "create" ? "Inserir Atividade" : "Gravar Alterações"}
                     </button>
                   </div>
                 </div>

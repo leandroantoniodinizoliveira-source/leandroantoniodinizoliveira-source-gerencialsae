@@ -201,6 +201,12 @@ export interface FiscalizacaoData {
   autosDeInfracao?: AutoDeInfracao[];
 }
 
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
 export interface Task {
   id: number;
   title: string;
@@ -221,6 +227,7 @@ export interface Task {
   completedAt?: string;
   completedBy?: string;
   notes?: string;
+  checklist?: ChecklistItem[];
   planId?: number | null;
   areaIds?: number[];
   responsibleIds?: number[];
