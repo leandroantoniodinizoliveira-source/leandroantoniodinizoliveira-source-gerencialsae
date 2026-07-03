@@ -31,6 +31,8 @@ export const DEFAULT_ROLES: UserRole[] = [
       { moduleId: 'geo', actions: ['view'] },
       { moduleId: 'users', actions: ['view', 'create', 'edit', 'delete'] },
       { moduleId: 'backup', actions: ['view', 'create', 'edit', 'delete'] },
+      { moduleId: 'fisc_operational', actions: ['view', 'create', 'edit', 'delete'] },
+      { moduleId: 'recurso_painel', actions: ['view', 'create', 'edit', 'delete'] },
     ]
   },
   {
@@ -61,6 +63,8 @@ export const DEFAULT_ROLES: UserRole[] = [
       { moduleId: 'dashboard', actions: ['view'] },
       { moduleId: 'geo', actions: ['view'] },
       { moduleId: 'users', actions: ['view'] },
+      { moduleId: 'fisc_operational', actions: ['view', 'create', 'edit'] },
+      { moduleId: 'recurso_painel', actions: ['view', 'create', 'edit'] },
     ]
   },
   {

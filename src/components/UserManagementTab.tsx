@@ -35,6 +35,10 @@ export function UserManagementTab() {
       modules: ['pub_cadastro', 'pub_painel']
     },
     {
+      category: 'Fiscalização e Recursos',
+      modules: ['fisc_operational', 'recurso_painel']
+    },
+    {
       category: 'Gerencial & Mapas',
       modules: ['dashboard', 'geo']
     },
@@ -65,6 +69,8 @@ export function UserManagementTab() {
     reg_agenda_painel: 'Painel da Agenda Regulatória',
     pub_cadastro: 'Cadastrar Publicações',
     pub_painel: 'Painel de Publicações',
+    fisc_operational: 'Painel de Fiscalização',
+    recurso_painel: 'Painel de Recurso de Revisão',
     dashboard: 'Painel Geral Gerencial (Hub)',
     geo: 'Mapa Interativo Avançado',
     users: 'Gestão de Usuários e Permissões',

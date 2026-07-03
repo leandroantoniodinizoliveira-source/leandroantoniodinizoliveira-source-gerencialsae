@@ -15,7 +15,9 @@ import {
   CalendarCheck,
   FileText,
   BarChart2,
-  BookOpen
+  BookOpen,
+  Shield,
+  Scale
 } from "lucide-react";
 import { motion } from "motion/react";
 import { Task, Area } from "../types";
@@ -135,7 +137,7 @@ export function HomeTab({ setActiveTab, setActivePlanningSubTab, tasks, areas, o
             </motion.div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Painel do Balanço Hídrico Card */}
             <motion.div 
               whileHover={{ y: -2 }}
@@ -153,6 +155,46 @@ export function HomeTab({ setActiveTab, setActivePlanningSubTab, tasks, areas, o
               </div>
               <div className="mt-8 flex items-center gap-2 text-xs font-bold text-blue-700">
                 Abrir Painel do Balanço Hídrico <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
+              </div>
+            </motion.div>
+
+            {/* Painel de Fiscalização Card */}
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onClick={() => setActiveTab("fisc_operational")}
+              className="p-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/20 shadow-sm cursor-pointer hover:shadow-md transition-all duration-300 flex flex-col justify-between group text-left h-full"
+            >
+              <div>
+                <div className="mb-4 p-3 rounded-xl bg-blue-50 text-blue-600 w-max border border-blue-100 group-hover:bg-blue-100 transition-colors">
+                  <Shield size={24} />
+                </div>
+                <h3 className="text-lg font-black text-slate-800 leading-tight mb-2">Painel de Fiscalização</h3>
+                <p className="text-slate-600 text-xs font-medium leading-relaxed mb-6">
+                  Painel estratégico de monitoramento das ações de fiscalização, constatações, não conformidades e termos emitidos pela equipe regulatória.
+                </p>
+              </div>
+              <div className="mt-8 flex items-center gap-2 text-xs font-bold text-blue-700">
+                Abrir Painel de Fiscalização <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
+              </div>
+            </motion.div>
+
+            {/* Painel de Recurso de Revisão Card */}
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onClick={() => setActiveTab("recurso_painel")}
+              className="p-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/20 shadow-sm cursor-pointer hover:shadow-md transition-all duration-300 flex flex-col justify-between group text-left h-full"
+            >
+              <div>
+                <div className="mb-4 p-3 rounded-xl bg-blue-50 text-blue-600 w-max border border-blue-100 group-hover:bg-blue-100 transition-colors">
+                  <Scale size={24} />
+                </div>
+                <h3 className="text-lg font-black text-slate-800 leading-tight mb-2">Painel de Recurso de Revisão</h3>
+                <p className="text-slate-600 text-xs font-medium leading-relaxed mb-6">
+                  Painel estratégico de acompanhamento de recursos de revisão, prazos de análise, andamento e penalidades aplicadas.
+                </p>
+              </div>
+              <div className="mt-8 flex items-center gap-2 text-xs font-bold text-blue-700">
+                Abrir Painel de Recurso de Revisão <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
               </div>
             </motion.div>
 
@@ -446,7 +488,7 @@ export function HomeTab({ setActiveTab, setActivePlanningSubTab, tasks, areas, o
             <div className="p-1 px-2.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-black uppercase tracking-wider">
               Módulo 3
             </div>
-            <h2 className="text-lg font-black text-slate-800 tracking-tight">Fiscalização</h2>
+            <h2 className="text-lg font-black text-slate-800 tracking-tight">Fiscalização e Operações</h2>
           </div>
         </div>
         
@@ -458,7 +500,7 @@ export function HomeTab({ setActiveTab, setActivePlanningSubTab, tasks, areas, o
             <h3 className="text-xs font-black text-slate-600 uppercase tracking-widest">Balanço Hídrico dos Sistemas de Abastecimento de Água</h3>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {/* Item 3.1: Gerenciar Balancos */}
           <motion.div 
             whileHover={{ y: -3 }}
@@ -479,7 +521,7 @@ export function HomeTab({ setActiveTab, setActivePlanningSubTab, tasks, areas, o
             </div>
           </motion.div>
 
-          {/* Item 3.2: Análie Individual */}
+          {/* Item 3.2: Análise Individual */}
           <motion.div 
             whileHover={{ y: -3 }}
             onClick={() => setActiveTab("analyze")}
@@ -516,6 +558,55 @@ export function HomeTab({ setActiveTab, setActivePlanningSubTab, tasks, areas, o
             </div>
             <div className="flex items-center gap-1 text-xs font-bold text-purple-600 mt-2">
               Ver comparação <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
+            </div>
+          </motion.div>
+        </div>
+
+        <div className="flex items-center gap-2 mb-4">
+          <div className="p-1 px-2.5 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest border border-slate-200">
+            Sub-Módulo 3.2
+          </div>
+          <h3 className="text-xs font-black text-slate-600 uppercase tracking-widest">Fiscalização e Recursos</h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Sub-Módulo 3.2.1: Painel de Fiscalização */}
+          <motion.div 
+            whileHover={{ y: -3 }}
+            onClick={() => setActiveTab("fisc_operational")}
+            className="p-6 rounded-2xl border border-blue-200 hover:border-blue-400 bg-white cursor-pointer group shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between"
+          >
+            <div>
+              <div className="mb-4 p-3 rounded-xl bg-blue-50 text-blue-500 w-max border border-blue-100 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                <Shield size={24} />
+              </div>
+              <h3 className="text-base font-bold text-slate-800 mb-1.5 leading-tight">Painel de Fiscalização</h3>
+              <p className="text-slate-500 text-xs font-medium leading-relaxed mb-4">
+                Painel estratégico de monitoramento das ações de fiscalização, constatações, não conformidades e termos emitidos.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 text-xs font-bold text-blue-600 mt-2">
+              Visualizar painel <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
+            </div>
+          </motion.div>
+
+          {/* Sub-Módulo 3.2.2: Painel de Recurso de Revisão */}
+          <motion.div 
+            whileHover={{ y: -3 }}
+            onClick={() => setActiveTab("recurso_painel")}
+            className="p-6 rounded-2xl border border-indigo-200 hover:border-indigo-400 bg-white cursor-pointer group shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between"
+          >
+            <div>
+              <div className="mb-4 p-3 rounded-xl bg-indigo-50 text-indigo-500 w-max border border-indigo-100 group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
+                <Scale size={24} />
+              </div>
+              <h3 className="text-base font-bold text-slate-800 mb-1.5 leading-tight">Painel de Recurso de Revisão</h3>
+              <p className="text-slate-500 text-xs font-medium leading-relaxed mb-4">
+                Painel estratégico de acompanhamento de recursos de revisão, prazos, andamento e penalidades aplicadas.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 mt-2">
+              Visualizar painel <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
             </div>
           </motion.div>
         </div>

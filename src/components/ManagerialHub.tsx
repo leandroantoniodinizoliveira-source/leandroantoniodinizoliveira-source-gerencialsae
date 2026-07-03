@@ -6,7 +6,9 @@ import {
   FileText,
   Droplets,
   BookOpen,
-  Globe
+  Globe,
+  Shield,
+  Scale
 } from "lucide-react";
 import { motion } from "motion/react";
 import { RequirePermission } from "../lib/auth";
@@ -17,6 +19,8 @@ interface ManagerialHubProps {
   onOpenWaterBalance: () => void;
   onOpenPublications: () => void;
   onOpenRegulatoryAgenda: () => void;
+  onOpenFiscalizacao?: () => void;
+  onOpenRecursoPainel?: () => void;
   isPublic?: boolean;
   showOnlyPublic?: boolean;
 }
@@ -27,6 +31,8 @@ export function ManagerialHub({
   onOpenWaterBalance, 
   onOpenPublications,
   onOpenRegulatoryAgenda,
+  onOpenFiscalizacao,
+  onOpenRecursoPainel,
   isPublic = false,
   showOnlyPublic = false
 }: ManagerialHubProps) {
@@ -173,6 +179,54 @@ export function ManagerialHub({
               </div>
               <div className="mt-8 flex items-center gap-2 text-xs font-bold text-blue-700">
                 Abrir Painel do Balanço Hídrico <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
+              </div>
+            </motion.div>
+            </RequirePermission>
+          )}
+
+          {/* Painel de Fiscalização Card - PRIVATE */}
+          {!showOnlyPublic && (
+            <RequirePermission moduleId="fisc_operational" action="view">
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onClick={onOpenFiscalizacao}
+              className="p-8 rounded-3xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/20 shadow-sm cursor-pointer hover:shadow-md transition-all duration-300 flex flex-col justify-between group h-full"
+            >
+              <div>
+                <div className="mb-4 p-3 rounded-xl bg-blue-50 text-blue-600 w-max border border-blue-100 group-hover:bg-blue-100 transition-colors">
+                  <Shield size={24} className="text-blue-600" />
+                </div>
+                <h3 className="text-lg font-black text-slate-800 leading-tight mb-2">Painel de Fiscalização</h3>
+                <p className="text-slate-600 text-xs font-medium leading-relaxed mb-6">
+                  Painel estratégico de monitoramento das ações de fiscalização, constatações, não conformidades e termos emitidos.
+                </p>
+              </div>
+              <div className="mt-8 flex items-center gap-2 text-xs font-bold text-blue-700">
+                Abrir Painel de Fiscalização <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
+              </div>
+            </motion.div>
+            </RequirePermission>
+          )}
+
+          {/* Painel de Recurso de Revisão Card - PRIVATE */}
+          {!showOnlyPublic && (
+            <RequirePermission moduleId="recurso_painel" action="view">
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onClick={onOpenRecursoPainel}
+              className="p-8 rounded-3xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/20 shadow-sm cursor-pointer hover:shadow-md transition-all duration-300 flex flex-col justify-between group h-full"
+            >
+              <div>
+                <div className="mb-4 p-3 rounded-xl bg-blue-50 text-blue-600 w-max border border-blue-100 group-hover:bg-blue-100 transition-colors">
+                  <Scale size={24} className="text-blue-600" />
+                </div>
+                <h3 className="text-lg font-black text-slate-800 leading-tight mb-2">Painel de Recurso de Revisão</h3>
+                <p className="text-slate-600 text-xs font-medium leading-relaxed mb-6">
+                  Painel estratégico de acompanhamento de recursos de revisão, prazos, andamento e penalidades aplicadas.
+                </p>
+              </div>
+              <div className="mt-8 flex items-center gap-2 text-xs font-bold text-blue-700">
+                Abrir Painel de Recurso de Revisão <ArrowRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
               </div>
             </motion.div>
             </RequirePermission>

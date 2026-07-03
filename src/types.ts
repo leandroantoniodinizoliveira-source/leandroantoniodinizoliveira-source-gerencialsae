@@ -9,6 +9,7 @@ export type ModuleId =
   | 'water_balances' | 'systems' | 'supply_sources' | 'demands' | 'explore' | 'analyze' | 'templates'
   | 'reg_cadastro' | 'reg_painel' | 'reg_agenda' | 'reg_agenda_painel'
   | 'pub_cadastro' | 'pub_painel'
+  | 'fisc_operational' | 'recurso_painel'
   | 'dashboard' | 'geo' | 'users' | 'backup';
 
 export interface AppPermission {

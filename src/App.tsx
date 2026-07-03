@@ -4139,9 +4139,6 @@ const renderSupplyTable = () => {
                 <span className="text-lg font-black text-white tracking-tight leading-none">
                   Gerencial SAE
                 </span>
-                <span className="text-[9px] font-bold text-adasa-light uppercase tracking-widest mt-1 block">
-                  Portal ADASA
-                </span>
               </div>
             </div>
           )}
@@ -8727,6 +8724,12 @@ const renderSupplyTable = () => {
                 }}
                 onOpenWaterBalance={() => {
                   handleTabChange("analyze");
+                }}
+                onOpenFiscalizacao={() => {
+                  handleTabChange("fisc_operational");
+                }}
+                onOpenRecursoPainel={() => {
+                  handleTabChange("recurso_painel");
                 }}
                 onOpenPublications={() => {
                   handleTabChange("pub_painel");
